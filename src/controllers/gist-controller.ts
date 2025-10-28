@@ -38,6 +38,7 @@ async function get(req: Request, res: Response) {
       data: { ...rest, files: cleanedFiles },
     });
   } catch (e) {
+    console.error(e);
     if ((e as AxiosError).status === 404) {
       res.status(404).json({
         success: false,
@@ -78,7 +79,7 @@ async function create(req: Request, res: Response) {
       data: returnData,
     });
   } catch (e) {
-    console.log(e);
+    console.error(e);
     res.status(500).json({
       success: false,
       message: 'Something went wrong',
@@ -112,6 +113,7 @@ async function update(req: Request, res: Response) {
       message: 'Gist updated',
     });
   } catch (e) {
+    console.error(e);
     if ((e as AxiosError).status === 404) {
       res.status(404).json({
         success: false,
@@ -135,6 +137,7 @@ async function del(req: Request, res: Response) {
       message: 'Gist deleted',
     });
   } catch (e) {
+    console.error(e);
     if ((e as AxiosError).status === 404) {
       res.status(404).json({
         success: false,
