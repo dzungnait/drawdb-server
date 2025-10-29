@@ -12,7 +12,6 @@ app.use(
     origin: config.dev
       ? '*'
       : (origin, callback) => {
-          console.log(config.server.allowedOrigins);
           if (origin && config.server.allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
           } else {
