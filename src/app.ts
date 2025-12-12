@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { emailRouter } from './routes/email-route';
-import { gistRouter } from './routes/gist-route';
+import { designRouter } from './routes/design-route';
 import { config } from './config';
 
 const app = express();
@@ -26,6 +26,6 @@ app.get('/', (req, res) => {
 });
 
 app.use('/email', emailRouter);
-app.use('/gists', gistRouter);
+app.use('/gists', designRouter);
 
 export default app;
