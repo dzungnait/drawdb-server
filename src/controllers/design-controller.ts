@@ -69,6 +69,9 @@ async function get(req: Request, res: Response) {
     }
 
     const latestVersion = await DesignService.getLatestVersion(id);
+    const contentData = typeof latestVersion?.data === 'string' 
+      ? latestVersion.data 
+      : JSON.stringify(latestVersion?.data || {});
 
     res.status(200).json({
       success: true,
@@ -76,7 +79,8 @@ async function get(req: Request, res: Response) {
         ...design,
         files: {
           'share.json': {
-            size: latestVersion?.data ? JSON.stringify(latestVersion.data).length : 0,
+            content: contentData,
+            size: contentData.length,
             raw_url: `${req.protocol}://${req.get('host')}/designs/${id}/latest`,
             type: 'application/json',
             truncated: false,

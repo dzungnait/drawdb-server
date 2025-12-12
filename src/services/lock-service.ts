@@ -15,6 +15,16 @@ class LockService {
    */
   async acquireLock(designId: string, sessionId: string): Promise<boolean> {
     try {
+      // Check if design exists first
+      const designExists = await pool.query(
+        "SELECT id FROM designs WHERE id = $1",
+        [designId]
+      );
+
+      if (designExists.rows.length === 0) {
+        throw new Error("Design not found");
+      }
+
       // Check if design is already locked by another session
       const existingLock = await pool.query(
         "SELECT * FROM user_locks WHERE design_id = $1 AND session_id != $2",

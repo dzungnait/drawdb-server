@@ -110,9 +110,10 @@ export const DesignService = {
     const result = await pool.query(query, [designId, versionNumber]);
     if (!result.rows[0]) return null;
 
+    const row = result.rows[0];
     return {
-      ...result.rows[0],
-      data: JSON.parse(result.rows[0].data),
+      ...row,
+      data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
     } as DesignVersion;
   },
 
@@ -140,7 +141,7 @@ export const DesignService = {
 
     const versions = result.rows.map((row: any) => ({
       ...row,
-      data: JSON.parse(row.data),
+      data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
     })) as DesignVersion[];
 
     return {
@@ -160,9 +161,10 @@ export const DesignService = {
     const result = await pool.query(query, [designId]);
     if (!result.rows[0]) return null;
 
+    const row = result.rows[0];
     return {
-      ...result.rows[0],
-      data: JSON.parse(result.rows[0].data),
+      ...row,
+      data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
     } as DesignVersion;
   },
 
@@ -185,7 +187,7 @@ export const DesignService = {
       (acc: any, row: any) => {
         const version = {
           ...row,
-          data: JSON.parse(row.data),
+          data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
         };
         if (row.version_number === version1) acc.version1 = version;
         if (row.version_number === version2) acc.version2 = version;
