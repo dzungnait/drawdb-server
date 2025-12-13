@@ -60,16 +60,66 @@ export const DesignService = {
     return result.rows[0] as Design;
   },
 
-  // Delete design (cascade delete versions)
+  // Delete design (cascade delete versions and snapshot)
   deleteDesign: async (designId: string): Promise<void> => {
     const query = 'DELETE FROM designs WHERE id = $1';
     await pool.query(query, [designId]);
   },
 
-  // Save a new version
+  // ====== DESIGN SNAPSHOT OPERATIONS (Auto-save/Current State) ======
+  
+  // Save or update current design snapshot (auto-save)
+  saveSnapshot: async (
+    designId: string,
+    data: Record<string, any>,
+    createdBy?: string,
+  ): Promise<any> => {
+    // Use UPSERT to either insert or update existing snapshot
+    const query = `
+      INSERT INTO design_snapshot (design_id, data, created_by)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (design_id) 
+      DO UPDATE SET 
+        data = EXCLUDED.data,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `;
+    const result = await pool.query(query, [
+      designId,
+      JSON.stringify(data),
+      createdBy || null,
+    ]);
+    return {
+      ...result.rows[0],
+      data: data,
+    };
+  },
+
+  // Get current snapshot
+  getSnapshot: async (designId: string): Promise<any | null> => {
+    const query = `
+      SELECT * FROM design_snapshot
+      WHERE design_id = $1
+    `;
+    const result = await pool.query(query, [designId]);
+    if (!result.rows[0]) return null;
+
+    const row = result.rows[0];
+    return {
+      ...row,
+      data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
+    };
+  },
+
+  // ====== DESIGN VERSIONS OPERATIONS (Manual Version Records) ======
+
+  // ====== DESIGN VERSIONS OPERATIONS (Manual Version Records) ======
+  
+  // Save a new manual version record
   saveVersion: async (
     designId: string,
     data: Record<string, any>,
+    versionName?: string,
     comment?: string,
     createdBy?: string,
   ): Promise<DesignVersion> => {
@@ -84,13 +134,14 @@ export const DesignService = {
 
     // Insert new version
     const query = `
-      INSERT INTO design_versions (design_id, version_number, data, created_by, comment)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO design_versions (design_id, version_number, version_name, data, created_by, comment)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
     `;
     const result = await pool.query(query, [
       designId,
       nextVersion,
+      versionName || `Version ${nextVersion}`,
       JSON.stringify(data),
       createdBy || null,
       comment || null,
@@ -150,52 +201,118 @@ export const DesignService = {
     };
   },
 
-  // Get latest version
+  // ====== COMPATIBILITY LAYER (Keep old functions for backward compatibility) ======
+  
+  // Get latest version (for backward compatibility)
   getLatestVersion: async (designId: string): Promise<DesignVersion | null> => {
-    const query = `
-      SELECT * FROM design_versions
-      WHERE design_id = $1
-      ORDER BY version_number DESC
-      LIMIT 1
-    `;
-    const result = await pool.query(query, [designId]);
-    if (!result.rows[0]) return null;
+    // Return current snapshot as a "version" for compatibility
+    const snapshot = await DesignService.getSnapshot(designId);
+    if (!snapshot) return null;
 
-    const row = result.rows[0];
     return {
-      ...row,
-      data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
+      id: snapshot.id,
+      design_id: designId,
+      version_number: 1,
+      version_name: "Current",
+      data: snapshot.data,
+      created_at: snapshot.updated_at,
+      created_by: snapshot.created_by,
+      comment: "Current working state",
     } as DesignVersion;
   },
 
-  // Compare two versions
-  compareVersions: async (
-    designId: string,
-    version1: number,
-    version2: number,
-  ): Promise<{
-    version1: DesignVersion | null;
-    version2: DesignVersion | null;
-  }> => {
+  // Update version (for backward compatibility - actually updates snapshot)
+  updateVersion: async (
+    versionId: string,
+    data: Record<string, any>,
+  ): Promise<DesignVersion> => {
+    // Find design by snapshot ID and update snapshot
     const query = `
-      SELECT * FROM design_versions
-      WHERE design_id = $1 AND version_number IN ($2, $3)
+      SELECT design_id FROM design_snapshot WHERE id = $1
     `;
-    const result = await pool.query(query, [designId, version1, version2]);
+    const result = await pool.query(query, [versionId]);
+    if (!result.rows[0]) {
+      throw new Error("Snapshot not found");
+    }
 
-    const versions = result.rows.reduce(
-      (acc: any, row: any) => {
-        const version = {
-          ...row,
-          data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
-        };
-        if (row.version_number === version1) acc.version1 = version;
-        if (row.version_number === version2) acc.version2 = version;
-        return acc;
-      },
-      { version1: null, version2: null },
-    );
+    const designId = result.rows[0].design_id;
+    const snapshot = await DesignService.saveSnapshot(designId, data);
+    
+    return {
+      id: snapshot.id,
+      design_id: designId,
+      version_number: 1,
+      version_name: "Current",
+      data: snapshot.data,
+      created_at: snapshot.updated_at,
+      created_by: snapshot.created_by,
+      comment: "Current working state",
+    } as DesignVersion;
+  },
 
-    return versions;
+  // List all designs with pagination and search
+  listDesigns: async (
+    page: number,
+    limit: number,
+    search: string,
+  ): Promise<{ designs: any[]; total: number }> => {
+    const offset = (page - 1) * limit;
+    
+    // Build search condition
+    const searchCondition = search
+      ? `WHERE name ILIKE $1 OR description ILIKE $1`
+      : '';
+    
+    const params: any[] = search ? [`%${search}%`, limit, offset] : [limit, offset];
+    
+    // Get total count
+    const countQuery = `SELECT COUNT(*) FROM designs ${searchCondition}`;
+    const countParams = search ? [`%${search}%`] : [];
+    const countResult = await pool.query(countQuery, countParams);
+    const total = parseInt(countResult.rows[0].count);
+    
+    // Get paginated results with current snapshot info
+    const query = `
+      SELECT 
+        d.id,
+        d.name,
+        d.description,
+        d.share_token,
+        d.created_at,
+        d.updated_at,
+        d.is_public,
+        ds.data as current_data,
+        ds.updated_at as last_modified
+      FROM designs d
+      LEFT JOIN design_snapshot ds ON ds.design_id = d.id
+      ${searchCondition}
+      ORDER BY d.updated_at DESC
+      LIMIT $${search ? '2' : '1'} OFFSET $${search ? '3' : '2'}
+    `;
+    
+    const result = await pool.query(query, params);
+    
+    // Parse data and extract metadata
+    const designs = result.rows.map(row => {
+      const data = typeof row.current_data === 'string' 
+        ? JSON.parse(row.current_data) 
+        : row.current_data || {};
+      
+      return {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        share_token: row.share_token,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        last_modified: row.last_modified,
+        is_public: row.is_public,
+        database: data.database || 'Generic',
+        tables: data.tables || [],
+        relationships: data.relationships || [],
+      };
+    });
+    
+    return { designs, total };
   },
 };

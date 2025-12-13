@@ -53,13 +53,32 @@ export async function initializeDatabase() {
       throw err;
     }
 
-    // Create design_versions table
+    // Create design_snapshot table (for current working state / auto-save)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS design_snapshot (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          design_id UUID NOT NULL UNIQUE REFERENCES designs(id) ON DELETE CASCADE,
+          data JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          created_by VARCHAR(255)
+        )
+      `);
+      console.log('✓ design_snapshot table created');
+    } catch (err) {
+      console.error('✗ Error creating design_snapshot table:', err);
+      throw err;
+    }
+
+    // Create design_versions table (for manual version records/snapshots)
     try {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS design_versions (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           design_id UUID NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
           version_number INTEGER NOT NULL,
+          version_name VARCHAR(255),
           data JSONB NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           created_by VARCHAR(255),
@@ -90,6 +109,26 @@ export async function initializeDatabase() {
     }
 
     // Create indexes
+    try {
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_design_snapshot_design_id 
+        ON design_snapshot(design_id)
+      `);
+      console.log('✓ idx_design_snapshot_design_id created');
+    } catch (err) {
+      console.warn('⚠ Index idx_design_snapshot_design_id may already exist:', (err as Error).message);
+    }
+
+    try {
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_design_snapshot_updated_at 
+        ON design_snapshot(updated_at)
+      `);
+      console.log('✓ idx_design_snapshot_updated_at created');
+    } catch (err) {
+      console.warn('⚠ Index idx_design_snapshot_updated_at may already exist:', (err as Error).message);
+    }
+
     try {
       await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_design_versions_design_id 

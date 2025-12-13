@@ -1,6 +1,88 @@
 import { Request, Response } from 'express';
 import { DesignService } from '../services/design-service';
 
+// Create manual snapshot/version
+async function createSnapshot(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const { versionName, comment } = req.body;
+
+    const design = await DesignService.getDesign(id);
+    if (!design) {
+      return res.status(404).json({
+        success: false,
+        message: 'Design not found',
+      });
+    }
+
+    // Get current working data from snapshot
+    const currentSnapshot = await DesignService.getSnapshot(id);
+    if (!currentSnapshot) {
+      return res.status(404).json({
+        success: false,
+        message: 'No current data found to create snapshot',
+      });
+    }
+
+    // Create new manual version record
+    const version = await DesignService.saveVersion(
+      id, 
+      currentSnapshot.data, 
+      versionName || `Version created at ${new Date().toISOString()}`,
+      comment
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Version snapshot created',
+      data: {
+        version_number: version.version_number,
+        version_name: version.version_name,
+        comment: version.comment,
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: 'Something went wrong',
+    });
+  }
+}
+
+// Auto-save current design state
+async function autoSave(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const { data } = req.body;
+
+    const design = await DesignService.getDesign(id);
+    if (!design) {
+      return res.status(404).json({
+        success: false,
+        message: 'Design not found',
+      });
+    }
+
+    // Save/update current snapshot
+    const snapshot = await DesignService.saveSnapshot(id, data);
+
+    res.status(200).json({
+      success: true,
+      message: 'Auto-saved successfully',
+      data: {
+        last_updated: snapshot.updated_at,
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: 'Auto-save failed',
+    });
+  }
+}
+
 // Create a new design or get existing one by share token
 async function createOrGet(req: Request, res: Response) {
   try {
@@ -31,9 +113,9 @@ async function createOrGet(req: Request, res: Response) {
       isPublic || false,
     );
 
-    // Save initial version
+    // Save initial snapshot (current state)
     const contentObj = typeof content === 'string' ? JSON.parse(content) : content;
-    await DesignService.saveVersion(design.id, contentObj, 'Initial version');
+    await DesignService.saveSnapshot(design.id, contentObj);
 
     res.status(200).json({
       success: true,
@@ -68,10 +150,26 @@ async function get(req: Request, res: Response) {
       });
     }
 
-    const latestVersion = await DesignService.getLatestVersion(id);
-    const contentData = typeof latestVersion?.data === 'string' 
-      ? latestVersion.data 
-      : JSON.stringify(latestVersion?.data || {});
+    const currentSnapshot = await DesignService.getSnapshot(id);
+    // If no snapshot exists, return empty diagram template
+    const defaultContent = JSON.stringify({
+      database: 'Generic',
+      tables: [],
+      relationships: [],
+      notes: [],
+      subjectAreas: [],
+      types: [],
+      enums: [],
+      title: design.name || 'Untitled Diagram',
+      pan: { x: 0, y: 0 },
+      zoom: 1,
+    });
+    
+    const contentData = currentSnapshot?.data 
+      ? (typeof currentSnapshot.data === 'string' 
+          ? currentSnapshot.data 
+          : JSON.stringify(currentSnapshot.data))
+      : defaultContent;
 
     res.status(200).json({
       success: true,
@@ -102,7 +200,7 @@ async function get(req: Request, res: Response) {
 async function update(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const { filename, content } = req.body;
+    const { filename, content, createVersion } = req.body;
 
     const design = await DesignService.getDesign(id);
     if (!design) {
@@ -113,7 +211,14 @@ async function update(req: Request, res: Response) {
     }
 
     const contentObj = typeof content === 'string' ? JSON.parse(content) : content;
-    await DesignService.saveVersion(id, contentObj, `Auto-saved at ${new Date().toISOString()}`);
+    
+    // Update design name if title is provided in content
+    if (contentObj.title && contentObj.title !== design.name) {
+      await DesignService.updateDesign(id, contentObj.title);
+    }
+    
+    // Auto-save to snapshot
+    await DesignService.saveSnapshot(id, contentObj);
 
     res.status(200).json({
       success: true,
@@ -288,4 +393,70 @@ async function getRevisionsForFile(req: Request, res: Response) {
   }
 }
 
-export { createOrGet, get, update, del, getCommits, getRevision, getRevisionsForFile };
+// Get all designs with pagination and search
+async function listDesigns(req: Request, res: Response) {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit as string) || 10);
+    const search = (req.query.search as string) || '';
+
+    const { designs, total } = await DesignService.listDesigns(page, limit, search);
+
+    res.status(200).json({
+      success: true,
+      data: designs,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: 'Something went wrong',
+    });
+  }
+}
+
+// ====== BACKWARD COMPATIBILITY FUNCTIONS ======
+
+// Get design (backward compatibility - gets current snapshot)
+async function getDesign(req: Request, res: Response) {
+  try {
+    const { id: designId } = req.params;
+    const version = await DesignService.getLatestVersion(designId);
+    
+    if (!version) {
+      return res.status(404).json({ error: 'Design not found' });
+    }
+    
+    res.json(version);
+  } catch (error) {
+    console.error("Get design error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+// Update design (backward compatibility - updates snapshot)
+async function updateDesign(req: Request, res: Response) {
+  try {
+    const { id: designId } = req.params;
+    const updateData = req.body;
+    
+    // Save as snapshot (current working state)
+    const snapshot = await DesignService.saveSnapshot(designId, updateData);
+    
+    // Return in version format for compatibility
+    const version = await DesignService.getLatestVersion(designId);
+    
+    res.json(version);
+  } catch (error) {
+    console.error("Update design error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+export { createOrGet, get, update, del, getCommits, getRevision, getRevisionsForFile, listDesigns, createSnapshot, autoSave, getDesign, updateDesign };

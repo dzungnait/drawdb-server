@@ -13,6 +13,7 @@ export interface DesignVersion {
   id: string;
   design_id: string;
   version_number: number;
+  version_name?: string;
   data: Record<string, any>;
   created_at: string;
   created_by?: string;
