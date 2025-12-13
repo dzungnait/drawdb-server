@@ -1,4 +1,23 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: drawdb-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: drawdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   drawdb-server:
     image: node:20-alpine
     container_name: drawdb-server
@@ -12,7 +31,13 @@ services:
       - default
     env_file:
       - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 networks:
   default:
     driver: bridge
+
+volumes:
+  postgres_data:

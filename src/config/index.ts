@@ -6,12 +6,12 @@ const clientUrls = process.env.CLIENT_URLS ?? 'http://localhost:5173,http://loca
 
 export const config = {
   dev: process.env.NODE_ENV === 'dev',
-  api: {
-    github: process.env.GITHUB_TOKEN,
-  },
   server: {
     port: process.env.PORT || 5000,
     allowedOrigins: clientUrls.split(','),
+  },
+  database: {
+    url: process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/drawdb',
   },
   mail: {
     service: process.env.MAIL_SERVICE || 'gmail',
