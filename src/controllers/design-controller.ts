@@ -183,6 +183,9 @@ async function get(req: Request, res: Response) {
             type: 'application/json',
             truncated: false,
             language: 'JSON',
+            version: currentSnapshot?.version || 1,
+            lastModifiedBy: currentSnapshot?.last_modified_by,
+            updatedAt: currentSnapshot?.updated_at
           },
         },
       },
@@ -200,7 +203,7 @@ async function get(req: Request, res: Response) {
 async function update(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const { filename, content, createVersion } = req.body;
+    const { filename, content, createVersion, version: clientVersion, lastModifiedBy } = req.body;
 
     const design = await DesignService.getDesign(id);
     if (!design) {
@@ -217,14 +220,42 @@ async function update(req: Request, res: Response) {
       await DesignService.updateDesign(id, contentObj.title);
     }
     
-    // Auto-save to snapshot
-    await DesignService.saveSnapshot(id, contentObj);
+    // Use version-aware save if client provided version
+    if (clientVersion !== undefined) {
+      const result = await DesignService.saveSnapshotWithVersionCheck(
+        id, 
+        contentObj, 
+        clientVersion,
+        lastModifiedBy
+      );
+      
+      if (!result.success) {
+        return res.status(409).json({
+          success: false,
+          message: result.conflict?.message,
+          conflict: result.conflict
+        });
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Design updated',
+        data: {
+          id: design.id,
+          version: result.data.version
+        },
+      });
+    }
+    
+    // Fallback to normal save for backward compatibility
+    const snapshot = await DesignService.saveSnapshot(id, contentObj, undefined, lastModifiedBy);
 
     res.status(200).json({
       success: true,
       message: 'Design updated',
       data: {
         id: design.id,
+        version: snapshot.version
       },
     });
   } catch (e) {
@@ -444,10 +475,31 @@ async function getDesign(req: Request, res: Response) {
 async function updateDesign(req: Request, res: Response) {
   try {
     const { id: designId } = req.params;
-    const updateData = req.body;
+    const { version: clientVersion, lastModifiedBy, ...updateData } = req.body;
     
-    // Save as snapshot (current working state)
-    const snapshot = await DesignService.saveSnapshot(designId, updateData);
+    // Use version-aware save if client provided version
+    if (clientVersion !== undefined) {
+      const result = await DesignService.saveSnapshotWithVersionCheck(
+        designId, 
+        updateData, 
+        clientVersion,
+        lastModifiedBy
+      );
+      
+      if (!result.success) {
+        return res.status(409).json({
+          error: "Conflict detected",
+          conflict: result.conflict
+        });
+      }
+      
+      // Return in version format for compatibility
+      const version = await DesignService.getLatestVersion(designId);
+      return res.json(version);
+    }
+    
+    // Fallback to normal save for backward compatibility
+    await DesignService.saveSnapshot(designId, updateData, undefined, lastModifiedBy);
     
     // Return in version format for compatibility
     const version = await DesignService.getLatestVersion(designId);

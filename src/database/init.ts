@@ -60,12 +60,14 @@ export async function initializeDatabase() {
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           design_id UUID NOT NULL UNIQUE REFERENCES designs(id) ON DELETE CASCADE,
           data JSONB NOT NULL,
+          version INTEGER DEFAULT 1,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          created_by VARCHAR(255)
+          created_by VARCHAR(255),
+          last_modified_by VARCHAR(255)
         )
       `);
-      console.log('✓ design_snapshot table created');
+      console.log('✓ design_snapshot table created with version control');
     } catch (err) {
       console.error('✗ Error creating design_snapshot table:', err);
       throw err;
@@ -92,22 +94,6 @@ export async function initializeDatabase() {
       throw err;
     }
 
-    // Create user_locks table
-    try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS user_locks (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          design_id UUID NOT NULL UNIQUE REFERENCES designs(id) ON DELETE CASCADE,
-          session_id VARCHAR(255) NOT NULL,
-          locked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      console.log('✓ user_locks table created');
-    } catch (err) {
-      console.error('✗ Error creating user_locks table:', err);
-      throw err;
-    }
-
     // Create indexes
     try {
       await pool.query(`
@@ -127,6 +113,16 @@ export async function initializeDatabase() {
       console.log('✓ idx_design_snapshot_updated_at created');
     } catch (err) {
       console.warn('⚠ Index idx_design_snapshot_updated_at may already exist:', (err as Error).message);
+    }
+
+    try {
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_design_snapshot_version 
+        ON design_snapshot(version)
+      `);
+      console.log('✓ idx_design_snapshot_version created');
+    } catch (err) {
+      console.warn('⚠ Index idx_design_snapshot_version may already exist:', (err as Error).message);
     }
 
     try {
@@ -169,17 +165,7 @@ export async function initializeDatabase() {
       console.warn('⚠ Index idx_designs_created_by may already exist:', (err as Error).message);
     }
 
-    try {
-      await pool.query(`
-        CREATE INDEX IF NOT EXISTS idx_user_locks_design_id 
-        ON user_locks(design_id)
-      `);
-      console.log('✓ idx_user_locks_design_id created');
-    } catch (err) {
-      console.warn('⚠ Index idx_user_locks_design_id may already exist:', (err as Error).message);
-    }
-
-    console.log('✅ Database initialized successfully');
+    console.log('✅ Database initialized successfully with version control');
   } catch (error) {
     console.error('❌ Error initializing database:', error);
     process.exit(1);

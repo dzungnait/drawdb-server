@@ -13,11 +13,6 @@ import {
   getDesign,
   updateDesign,
 } from '../controllers/design-controller';
-import {
-  lock,
-  unlock,
-  heartbeat,
-} from '../controllers/lock-controller';
 
 const designRouter = express.Router();
 
@@ -41,10 +36,5 @@ designRouter.get('/:id/commits', getCommits as any);
 designRouter.get('/:id/versions', getCommits as any);  // Alias for versions
 designRouter.get('/:id/file-versions/:file', getRevisionsForFile as any);
 designRouter.get('/:id/:sha', getRevision as any); // Must be last to avoid conflicts
-
-// Lock management endpoints
-designRouter.post('/:id/lock', lock as any);
-designRouter.delete('/:id/unlock', unlock as any);
-designRouter.post('/:id/heartbeat', heartbeat as any);
 
 export { designRouter };

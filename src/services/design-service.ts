@@ -73,26 +73,68 @@ export const DesignService = {
     designId: string,
     data: Record<string, any>,
     createdBy?: string,
+    lastModifiedBy?: string,
   ): Promise<any> => {
     // Use UPSERT to either insert or update existing snapshot
     const query = `
-      INSERT INTO design_snapshot (design_id, data, created_by)
-      VALUES ($1, $2, $3)
+      INSERT INTO design_snapshot (design_id, data, version, created_by, last_modified_by)
+      VALUES ($1, $2, 1, $3, $4)
       ON CONFLICT (design_id) 
       DO UPDATE SET 
         data = EXCLUDED.data,
-        updated_at = CURRENT_TIMESTAMP
+        version = design_snapshot.version + 1,
+        updated_at = CURRENT_TIMESTAMP,
+        last_modified_by = EXCLUDED.last_modified_by
       RETURNING *
     `;
     const result = await pool.query(query, [
       designId,
       JSON.stringify(data),
       createdBy || null,
+      lastModifiedBy || null,
     ]);
     return {
       ...result.rows[0],
       data: data,
     };
+  },
+
+  // Save with version conflict detection
+  saveSnapshotWithVersionCheck: async (
+    designId: string,
+    data: Record<string, any>,
+    expectedVersion: number,
+    lastModifiedBy?: string,
+  ): Promise<{ success: boolean; data?: any; conflict?: any }> => {
+    try {
+      // First, get current version
+      const currentSnapshot = await DesignService.getSnapshot(designId);
+      
+      if (currentSnapshot && currentSnapshot.version !== expectedVersion) {
+        // Version conflict detected
+        return {
+          success: false,
+          conflict: {
+            message: "Conflict detected: Design has been modified by another user",
+            currentVersion: currentSnapshot.version,
+            expectedVersion: expectedVersion,
+            currentData: currentSnapshot.data,
+            serverLastModifiedBy: currentSnapshot.last_modified_by,
+            serverUpdatedAt: currentSnapshot.updated_at
+          }
+        };
+      }
+
+      // No conflict, proceed with save
+      const result = await DesignService.saveSnapshot(designId, data, undefined, lastModifiedBy);
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      console.error("Error in saveSnapshotWithVersionCheck:", error);
+      throw error;
+    }
   },
 
   // Get current snapshot
