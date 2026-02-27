@@ -11,8 +11,11 @@ async function start() {
 
     await initializeDatabase();
 
-    const port = parseInt(process.env.PORT ?? '') || config.server.port || 8080;
-
+    const envPort = process.env.PORT;
+    const port: number = envPort
+      ? parseInt(envPort, 10)
+      : Number(config.server.port) || 8080;
+    
     app.listen(port, '0.0.0.0', () => {
       console.log(`🚀 Server is running on port ${port}`);
     });
