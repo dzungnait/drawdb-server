@@ -11,7 +11,7 @@ async function start() {
 
     await initializeDatabase();
 
-    const port = process.env.PORT || config.server.port || 8080;
+    const port = parseInt(process.env.PORT ?? '') || config.server.port || 8080;
 
     app.listen(port, '0.0.0.0', () => {
       console.log(`🚀 Server is running on port ${port}`);
