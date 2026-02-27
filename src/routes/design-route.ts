@@ -12,29 +12,35 @@ import {
   autoSave,
   getDesign,
   updateDesign,
+  verifyPin,
 } from '../controllers/design-controller';
+import { pinGuard } from '../middleware/pin-guard';
 
 const designRouter = express.Router();
 
 // List all designs with pagination and search
 designRouter.get('/', listDesigns as any);
 
-// These endpoints mirror the gist API structure for compatibility
+// Create new design (no PIN guard — PIN is set HERE during creation)
 designRouter.post('/', createOrGet as any);
-designRouter.get('/:id', get as any);
-designRouter.delete('/:id', del as any);
-designRouter.patch('/:id', update as any);
-designRouter.post('/:id/autosave', autoSave as any);       // New endpoint for auto-save
-designRouter.post('/:id/snapshot', createSnapshot as any); // Endpoint for manual version snapshots
+
+// Verify PIN and receive access token (no PIN guard — this IS the verification step)
+designRouter.post('/:id/verify-pin', verifyPin as any);
+
+// All routes below are protected by pinGuard
+designRouter.get('/:id', pinGuard as any, get as any);
+designRouter.delete('/:id', pinGuard as any, del as any);
+designRouter.patch('/:id', pinGuard as any, update as any);
+designRouter.post('/:id/autosave', pinGuard as any, autoSave as any);
+designRouter.post('/:id/snapshot', pinGuard as any, createSnapshot as any);
 
 // ====== BACKWARD COMPATIBILITY ROUTES ======
-// These routes provide backward compatibility with old API structure
-designRouter.get('/design/:id', getDesign as any);     // Get current snapshot as "design"
-designRouter.put('/design/:id', updateDesign as any);  // Update current snapshot
+designRouter.get('/design/:id', pinGuard as any, getDesign as any);
+designRouter.put('/design/:id', pinGuard as any, updateDesign as any);
 
-designRouter.get('/:id/commits', getCommits as any);
-designRouter.get('/:id/versions', getCommits as any);  // Alias for versions
-designRouter.get('/:id/file-versions/:file', getRevisionsForFile as any);
-designRouter.get('/:id/:sha', getRevision as any); // Must be last to avoid conflicts
+designRouter.get('/:id/commits', pinGuard as any, getCommits as any);
+designRouter.get('/:id/versions', pinGuard as any, getCommits as any);
+designRouter.get('/:id/file-versions/:file', pinGuard as any, getRevisionsForFile as any);
+designRouter.get('/:id/:sha', pinGuard as any, getRevision as any); // Must be last
 
 export { designRouter };

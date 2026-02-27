@@ -18,4 +18,8 @@ export const config = {
     username: process.env.MAIL_USERNAME || '',
     password: process.env.MAIL_PASSWORD || '',
   },
+  jwt: {
+    secret: process.env.JWT_SECRET || 'drawdb-default-jwt-secret-change-in-production',
+    expiresIn: '24h',
+  },
 };

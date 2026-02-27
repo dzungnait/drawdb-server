@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { DesignService } from '../services/design-service';
+import { config } from '../config';
 
 // Create manual snapshot/version
 async function createSnapshot(req: Request, res: Response) {
@@ -86,7 +88,7 @@ async function autoSave(req: Request, res: Response) {
 // Create a new design or get existing one by share token
 async function createOrGet(req: Request, res: Response) {
   try {
-    const { filename, content, public: isPublic } = req.body;
+    const { filename, content, public: isPublic, pin } = req.body;
 
     // If filename is a share token, get existing design
     if (filename && filename.length === 21 && /^[a-zA-Z0-9_-]+$/.test(filename)) {
@@ -107,10 +109,13 @@ async function createOrGet(req: Request, res: Response) {
     }
 
     // Create new design
+    const pinHash = pin ? await DesignService.hashPin(pin) : undefined;
     const design = await DesignService.createDesign(
       `Untitled Design ${Date.now()}`,
       'Auto-generated design',
       isPublic || false,
+      undefined,
+      pinHash,
     );
 
     // Save initial snapshot (current state)
@@ -121,6 +126,7 @@ async function createOrGet(req: Request, res: Response) {
       success: true,
       data: {
         id: design.id,
+        pin_protected: design.pin_protected,
         files: {
           'share.json': {
             content: content || '{}',
@@ -137,7 +143,46 @@ async function createOrGet(req: Request, res: Response) {
   }
 }
 
-// Get design by ID
+// Verify PIN and return a 24h access token
+async function verifyPin(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const { pin } = req.body;
+
+    if (!pin) {
+      return res.status(400).json({ success: false, message: 'PIN is required' });
+    }
+
+    const design = await DesignService.getDesign(id);
+    if (!design) {
+      return res.status(404).json({ success: false, message: 'Design not found' });
+    }
+
+    if (!design.pin_protected || !design.pin_hash) {
+      return res.status(400).json({ success: false, message: 'This design is not PIN protected' });
+    }
+
+    const isValid = await DesignService.verifyPinHash(pin, design.pin_hash);
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: 'Incorrect PIN' });
+    }
+
+    const token = jwt.sign(
+      { designId: id, sub: 'pin-access' },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn as jwt.SignOptions['expiresIn'] },
+    );
+
+    return res.status(200).json({
+      success: true,
+      token,
+      expiresIn: config.jwt.expiresIn,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, message: 'Something went wrong' });
+  }
+}
 async function get(req: Request, res: Response) {
   try {
     const { id } = req.params;
@@ -511,4 +556,4 @@ async function updateDesign(req: Request, res: Response) {
   }
 }
 
-export { createOrGet, get, update, del, getCommits, getRevision, getRevisionsForFile, listDesigns, createSnapshot, autoSave, getDesign, updateDesign };
+export { createOrGet, get, update, del, getCommits, getRevision, getRevisionsForFile, listDesigns, createSnapshot, autoSave, getDesign, updateDesign, verifyPin };

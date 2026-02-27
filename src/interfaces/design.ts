@@ -7,6 +7,8 @@ export interface Design {
   created_by?: string;
   is_public: boolean;
   share_token?: string;
+  pin_protected: boolean;
+  pin_hash?: string;
 }
 
 export interface DesignVersion {

@@ -165,6 +165,18 @@ export async function initializeDatabase() {
       console.warn('⚠ Index idx_designs_created_by may already exist:', (err as Error).message);
     }
 
+    // Add PIN protection columns (safe for existing tables)
+    try {
+      await pool.query(`
+        ALTER TABLE designs
+          ADD COLUMN IF NOT EXISTS pin_hash VARCHAR(255),
+          ADD COLUMN IF NOT EXISTS pin_protected BOOLEAN NOT NULL DEFAULT false
+      `);
+      console.log('✓ PIN columns added to designs table');
+    } catch (err) {
+      console.warn('⚠ PIN columns may already exist:', (err as Error).message);
+    }
+
     console.log('✅ Database initialized successfully with version control');
   } catch (error) {
     console.error('❌ Error initializing database:', error);

@@ -1,21 +1,34 @@
 import pool from '../database/pool';
 import { Design, DesignVersion } from '../interfaces/design';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 const generateShareToken = () => crypto.randomBytes(16).toString('hex').substring(0, 21);
+const PIN_SALT_ROUNDS = 10;
 
 export const DesignService = {
+  // Hash a plain-text PIN
+  hashPin: async (pin: string): Promise<string> => {
+    return bcrypt.hash(pin, PIN_SALT_ROUNDS);
+  },
+
+  // Compare plain-text PIN against stored hash
+  verifyPinHash: async (pin: string, hash: string): Promise<boolean> => {
+    return bcrypt.compare(pin, hash);
+  },
+
   // Create a new design
   createDesign: async (
     name: string,
     description?: string,
     isPublic?: boolean,
     createdBy?: string,
+    pinHash?: string,
   ): Promise<Design> => {
     const shareToken = generateShareToken();
     const query = `
-      INSERT INTO designs (name, description, is_public, share_token, created_by)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO designs (name, description, is_public, share_token, created_by, pin_hash, pin_protected)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
     const result = await pool.query(query, [
@@ -24,6 +37,8 @@ export const DesignService = {
       isPublic || false,
       shareToken,
       createdBy || null,
+      pinHash || null,
+      pinHash ? true : false,
     ]);
     return result.rows[0] as Design;
   },
@@ -323,6 +338,7 @@ export const DesignService = {
         d.created_at,
         d.updated_at,
         d.is_public,
+        d.pin_protected,
         ds.data as current_data,
         ds.updated_at as last_modified
       FROM designs d
@@ -349,6 +365,7 @@ export const DesignService = {
         updated_at: row.updated_at,
         last_modified: row.last_modified,
         is_public: row.is_public,
+        pin_protected: row.pin_protected || false,
         database: data.database || 'Generic',
         tables: data.tables || [],
         relationships: data.relationships || [],
