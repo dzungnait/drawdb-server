@@ -11,7 +11,7 @@ export const config = {
     allowedOrigins: clientUrls.split(','),
   },
   database: {
-    url: process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/drawdb',
+    url: process.env.DATABASE_URL || 'postgresql://postgres:kYRaZRZuuuDmiKYbmECwTbPoplACorMU@postgres.railway.internal:5432/drawdb',
   },
   mail: {
     service: process.env.MAIL_SERVICE || 'gmail',
