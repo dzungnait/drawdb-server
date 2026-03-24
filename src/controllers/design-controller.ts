@@ -556,4 +556,47 @@ async function updateDesign(req: Request, res: Response) {
   }
 }
 
-export { createOrGet, get, update, del, getCommits, getRevision, getRevisionsForFile, listDesigns, createSnapshot, autoSave, getDesign, updateDesign, verifyPin };
+// Update (or set/remove) PIN for a design
+// Body: { currentPin?: string, newPin?: string }
+// - To SET a PIN on a non-protected design: { newPin }
+// - To CHANGE a PIN on a protected design:  { currentPin, newPin }
+// - To REMOVE a PIN on a protected design:  { currentPin } (no newPin)
+async function updatePin(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const { currentPin, newPin } = req.body;
+
+    const design = await DesignService.getDesign(id);
+    if (!design) {
+      return res.status(404).json({ success: false, message: 'Design not found' });
+    }
+
+    // If PIN-protected, require the current PIN before any change
+    if (design.pin_protected && design.pin_hash) {
+      if (!currentPin) {
+        return res.status(400).json({ success: false, message: 'Current PIN is required' });
+      }
+      const isValid = await DesignService.verifyPinHash(currentPin, design.pin_hash);
+      if (!isValid) {
+        return res.status(401).json({ success: false, message: 'Incorrect current PIN' });
+      }
+    }
+
+    let pinHash: string | null = null;
+    let pinProtected = false;
+
+    if (newPin) {
+      pinHash = await DesignService.hashPin(newPin);
+      pinProtected = true;
+    }
+
+    await DesignService.updatePinProtection(id, pinHash, pinProtected);
+
+    return res.status(200).json({ success: true, pin_protected: pinProtected });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, message: 'Something went wrong' });
+  }
+}
+
+export { createOrGet, get, update, del, getCommits, getRevision, getRevisionsForFile, listDesigns, createSnapshot, autoSave, getDesign, updateDesign, verifyPin, updatePin };

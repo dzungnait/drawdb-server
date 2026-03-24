@@ -374,4 +374,16 @@ export const DesignService = {
     
     return { designs, total };
   },
+
+  // Update or remove PIN protection for a design
+  updatePinProtection: async (
+    designId: string,
+    pinHash: string | null,
+    pinProtected: boolean,
+  ): Promise<void> => {
+    await pool.query(
+      'UPDATE designs SET pin_hash = $1, pin_protected = $2 WHERE id = $3',
+      [pinHash, pinProtected, designId],
+    );
+  },
 };

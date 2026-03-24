@@ -13,6 +13,7 @@ import {
   getDesign,
   updateDesign,
   verifyPin,
+  updatePin,
 } from '../controllers/design-controller';
 import { pinGuard } from '../middleware/pin-guard';
 
@@ -26,6 +27,9 @@ designRouter.post('/', createOrGet as any);
 
 // Verify PIN and receive access token (no PIN guard — this IS the verification step)
 designRouter.post('/:id/verify-pin', verifyPin as any);
+
+// Update/set/remove PIN — requires current PIN if already protected (verified inside controller)
+designRouter.patch('/:id/pin', pinGuard as any, updatePin as any);
 
 // All routes below are protected by pinGuard
 designRouter.get('/:id', pinGuard as any, get as any);
