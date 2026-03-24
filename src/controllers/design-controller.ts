@@ -590,10 +590,7 @@ async function updatePin(req: Request, res: Response) {
       pinProtected = true;
     }
 
-    await pool.query(
-      'UPDATE designs SET pin_hash = $1, pin_protected = $2 WHERE id = $3',
-      [pinHash, pinProtected, id],
-    );
+    await DesignService.updatePinProtection(id, pinHash, pinProtected);
 
     return res.status(200).json({ success: true, pin_protected: pinProtected });
   } catch (e) {
