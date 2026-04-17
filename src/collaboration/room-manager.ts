@@ -1,4 +1,4 @@
-import { Room, RoomUser, UserRole, PresenceInfo, MAX_EDITORS } from './types';
+import { Room, RoomUser, UserRole, PresenceInfo, EntityLockInfo, MAX_EDITORS } from './types';
 
 // Random nickname generator
 const ADJECTIVES = [
@@ -51,6 +51,8 @@ export class RoomManager {
         users: new Map(),
         editorCount: 0,
         viewerQueue: [],
+        nextSeqNumber: 1,
+        entityLocks: new Map(),
       };
       this.rooms.set(designId, room);
     }
@@ -101,7 +103,7 @@ export class RoomManager {
     return user;
   }
 
-  removeUser(socketId: string): { room: Room; removedUser: RoomUser; promotedUser?: RoomUser } | null {
+  removeUser(socketId: string): { room: Room; removedUser: RoomUser; promotedUser?: RoomUser; releasedLocks: string[] } | null {
     const designId = this.socketToRoom.get(socketId);
     if (!designId) return null;
 
@@ -138,7 +140,16 @@ export class RoomManager {
       this.rooms.delete(designId);
     }
 
-    return { room, removedUser: user, promotedUser };
+    // Collect entity keys locked by the removed user
+    const releasedLocks: string[] = [];
+    for (const [key, lock] of room.entityLocks) {
+      if (lock.socketId === socketId) {
+        room.entityLocks.delete(key);
+        releasedLocks.push(key);
+      }
+    }
+
+    return { room, removedUser: user, promotedUser, releasedLocks };
   }
 
   requestEditSlot(socketId: string): { success: boolean; position?: number } {
@@ -216,6 +227,54 @@ export class RoomManager {
 
   getRoomForSocket(socketId: string): string | undefined {
     return this.socketToRoom.get(socketId);
+  }
+
+  getNextSeq(designId: string): number {
+    const room = this.rooms.get(designId);
+    if (!room) return 0;
+    return room.nextSeqNumber++;
+  }
+
+  lockEntity(socketId: string, entityKey: string): EntityLockInfo | null {
+    const designId = this.socketToRoom.get(socketId);
+    if (!designId) return null;
+    const room = this.rooms.get(designId);
+    if (!room) return null;
+    const user = room.users.get(socketId);
+    if (!user) return null;
+
+    // If already locked by another user, reject
+    const existing = room.entityLocks.get(entityKey);
+    if (existing && existing.socketId !== socketId) return null;
+
+    const lock: EntityLockInfo = {
+      entityKey,
+      socketId,
+      nickname: user.nickname,
+      color: user.color,
+      lockedAt: Date.now(),
+    };
+    room.entityLocks.set(entityKey, lock);
+    return lock;
+  }
+
+  unlockEntity(socketId: string, entityKey: string): boolean {
+    const designId = this.socketToRoom.get(socketId);
+    if (!designId) return false;
+    const room = this.rooms.get(designId);
+    if (!room) return false;
+
+    const lock = room.entityLocks.get(entityKey);
+    if (!lock || lock.socketId !== socketId) return false;
+
+    room.entityLocks.delete(entityKey);
+    return true;
+  }
+
+  getEntityLocks(designId: string): EntityLockInfo[] {
+    const room = this.rooms.get(designId);
+    if (!room) return [];
+    return Array.from(room.entityLocks.values());
   }
 }
 

@@ -16,16 +16,26 @@ export interface RoomUser {
   selectedElement?: { type: number; id: string | number | null } | null;
 }
 
+export interface EntityLockInfo {
+  entityKey: string; // e.g. "table:3" or "table:3:field:1"
+  socketId: string;
+  nickname: string;
+  color: string;
+  lockedAt: number;
+}
+
 export interface Room {
   designId: string;
   users: Map<string, RoomUser>; // socketId -> RoomUser
   editorCount: number;
   viewerQueue: string[]; // socketIds in order, for slot promotion
+  nextSeqNumber: number;
+  entityLocks: Map<string, EntityLockInfo>; // entityKey -> lock info
 }
 
 export interface OperationPayload {
   id: string;
-  type: 'add' | 'delete' | 'edit' | 'move';
+  type: 'add' | 'delete' | 'edit' | 'move' | 'edit-field' | 'delete-field';
   target: 'table' | 'relationship' | 'note' | 'area' | 'type' | 'enum';
   targetId: string | number;
   data: Record<string, unknown>;
@@ -60,6 +70,8 @@ export interface ClientToServerEvents {
   'cursor-move': (cursor: CursorPayload) => void;
   'selection-change': (selection: SelectionPayload) => void;
   'request-edit-slot': () => void;
+  'lock-entity': (data: { entityKey: string }) => void;
+  'unlock-entity': (data: { entityKey: string }) => void;
   'full-state-sync': (data: { tables: unknown[]; relationships: unknown[]; notes: unknown[]; areas: unknown[]; types?: unknown[]; enums?: unknown[] }) => void;
   'request-full-state': () => void;
   'full-state-for-peer': (data: { targetSocketId: string; data: { tables: unknown[]; relationships: unknown[]; notes: unknown[]; areas: unknown[]; types?: unknown[]; enums?: unknown[] } }) => void;
@@ -67,10 +79,12 @@ export interface ClientToServerEvents {
 
 // Events: server → client
 export interface ServerToClientEvents {
-  'room-joined': (data: { role: UserRole; users: PresenceInfo[]; nickname: string; color: string }) => void;
+  'room-joined': (data: { role: UserRole; users: PresenceInfo[]; nickname: string; color: string; entityLocks: EntityLockInfo[] }) => void;
   'user-joined': (user: PresenceInfo) => void;
   'user-left': (data: { socketId: string }) => void;
-  'remote-operation': (op: OperationPayload & { userId: string; nickname: string }) => void;
+  'remote-operation': (op: OperationPayload & { userId: string; nickname: string; seq: number }) => void;
+  'entity-locked': (data: { entityKey: string; socketId: string; nickname: string; color: string }) => void;
+  'entity-unlocked': (data: { entityKey: string; socketId: string }) => void;
   'cursor-updated': (data: { socketId: string; cursor: CursorPayload; nickname: string; color: string }) => void;
   'selection-updated': (data: { socketId: string; selection: SelectionPayload; nickname: string; color: string }) => void;
   'role-changed': (data: { role: UserRole; message: string }) => void;

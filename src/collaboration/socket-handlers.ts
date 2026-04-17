@@ -22,11 +22,13 @@ export function registerSocketHandlers(io: IOServer): void {
 
       // Send joined user their info + current room users
       const allUsers = roomManager.getRoomUsers(designId);
+      const entityLocks = roomManager.getEntityLocks(designId);
       socket.emit('room-joined', {
         role: user.role,
         users: allUsers,
         nickname: user.nickname,
         color: user.color,
+        entityLocks,
       });
 
       // Notify others in the room
@@ -81,11 +83,41 @@ export function registerSocketHandlers(io: IOServer): void {
       }
 
       // Broadcast to all others in the room
+      const seq = roomManager.getNextSeq(designId);
       socket.to(`design:${designId}`).emit('remote-operation', {
         ...op,
         userId: user.sessionId,
         nickname: user.nickname,
+        seq,
       });
+    });
+
+    socket.on('lock-entity', ({ entityKey }) => {
+      const designId = roomManager.getRoomForSocket(socket.id);
+      if (!designId) return;
+
+      const lock = roomManager.lockEntity(socket.id, entityKey);
+      if (lock) {
+        socket.to(`design:${designId}`).emit('entity-locked', {
+          entityKey,
+          socketId: socket.id,
+          nickname: lock.nickname,
+          color: lock.color,
+        });
+      }
+    });
+
+    socket.on('unlock-entity', ({ entityKey }) => {
+      const designId = roomManager.getRoomForSocket(socket.id);
+      if (!designId) return;
+
+      const unlocked = roomManager.unlockEntity(socket.id, entityKey);
+      if (unlocked) {
+        socket.to(`design:${designId}`).emit('entity-unlocked', {
+          entityKey,
+          socketId: socket.id,
+        });
+      }
     });
 
     socket.on('cursor-move', (cursor) => {
@@ -156,11 +188,16 @@ export function registerSocketHandlers(io: IOServer): void {
       const result = roomManager.removeUser(socket.id);
       if (!result) return;
 
-      const { room, removedUser, promotedUser } = result;
+      const { room, removedUser, promotedUser, releasedLocks } = result;
       const roomKey = `design:${room.designId}`;
 
       // Notify room about user leaving
       io.to(roomKey).emit('user-left', { socketId: socket.id });
+
+      // Broadcast released entity locks
+      for (const entityKey of releasedLocks) {
+        io.to(roomKey).emit('entity-unlocked', { entityKey, socketId: socket.id });
+      }
 
       // Notify promoted user
       if (promotedUser) {
