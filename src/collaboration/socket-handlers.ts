@@ -82,10 +82,15 @@ export function registerSocketHandlers(io: IOServer): void {
 
       roomManager.updateCursor(socket.id, cursor);
 
+      const room = roomManager.getRoom(designId);
+      const user = room?.users.get(socket.id);
+
       // Broadcast to others (throttled on client side)
       socket.to(`design:${designId}`).emit('cursor-updated', {
         socketId: socket.id,
         cursor,
+        nickname: user?.nickname || 'Unknown',
+        color: user?.color || '#999',
       });
     });
 
@@ -95,9 +100,14 @@ export function registerSocketHandlers(io: IOServer): void {
 
       roomManager.updateSelection(socket.id, selection);
 
+      const room = roomManager.getRoom(designId);
+      const user = room?.users.get(socket.id);
+
       socket.to(`design:${designId}`).emit('selection-updated', {
         socketId: socket.id,
         selection,
+        nickname: user?.nickname || 'Unknown',
+        color: user?.color || '#999',
       });
     });
 

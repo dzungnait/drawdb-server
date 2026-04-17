@@ -69,8 +69,8 @@ export interface ServerToClientEvents {
   'user-joined': (user: PresenceInfo) => void;
   'user-left': (data: { socketId: string }) => void;
   'remote-operation': (op: OperationPayload & { userId: string; nickname: string }) => void;
-  'cursor-updated': (data: { socketId: string; cursor: CursorPayload }) => void;
-  'selection-updated': (data: { socketId: string; selection: SelectionPayload }) => void;
+  'cursor-updated': (data: { socketId: string; cursor: CursorPayload; nickname: string; color: string }) => void;
+  'selection-updated': (data: { socketId: string; selection: SelectionPayload; nickname: string; color: string }) => void;
   'role-changed': (data: { role: UserRole; message: string }) => void;
   'edit-slot-available': (data: { message: string }) => void;
   'full-state-update': (data: { tables: unknown[]; relationships: unknown[]; notes: unknown[]; areas: unknown[]; types?: unknown[]; enums?: unknown[] }) => void;
