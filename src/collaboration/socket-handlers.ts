@@ -40,16 +40,28 @@ export function registerSocketHandlers(io: IOServer): void {
         selectedElement: user.selectedElement,
       });
 
-      // If viewer, request full state from first editor
-      if (user.role === UserRole.VIEWER) {
-        const firstEditor = allUsers.find(u => u.role === UserRole.EDITOR && u.socketId !== socket.id);
-        if (firstEditor) {
-          // Ask the editor to send full state to this viewer
-          io.to(firstEditor.socketId).emit('full-state-update', {} as any);
-        }
-      }
-
       console.log(`👤 ${user.nickname} (${user.role}) joined room ${designId} [${allUsers.length} users]`);
+    });
+
+    // A reconnecting client requests full state from another peer
+    socket.on('request-full-state', () => {
+      const designId = roomManager.getRoomForSocket(socket.id);
+      if (!designId) return;
+
+      const allUsers = roomManager.getRoomUsers(designId);
+      // Find an editor (not the requester) to ask for state
+      const peer = allUsers.find(u => u.role === UserRole.EDITOR && u.socketId !== socket.id);
+      if (peer) {
+        // Ask peer to send their full state — peer will emit 'full-state-sync'
+        io.to(peer.socketId).emit('request-state-from-peer', { requestingSocketId: socket.id });
+      }
+    });
+
+    // Peer responds with full state for a specific requester
+    socket.on('full-state-for-peer', ({ targetSocketId, data }) => {
+      if (targetSocketId && data) {
+        io.to(targetSocketId).emit('full-state-update', data);
+      }
     });
 
     socket.on('operation', (op) => {

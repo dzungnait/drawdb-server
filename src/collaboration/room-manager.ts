@@ -56,8 +56,15 @@ export class RoomManager {
     }
 
     // Check if same sessionId already in room (reconnect scenario)
+    let previousNickname: string | undefined;
+    let previousColor: string | undefined;
+    let previousRole: string | undefined;
     for (const [existingSocketId, user] of room.users) {
       if (user.sessionId === sessionId && existingSocketId !== socketId) {
+        // Preserve identity from old connection
+        previousNickname = user.nickname;
+        previousColor = user.color;
+        previousRole = user.role;
         // Remove old connection
         this.removeUser(existingSocketId);
         break;
@@ -67,12 +74,15 @@ export class RoomManager {
     const existingColors = new Set<string>();
     room.users.forEach(u => existingColors.add(u.color));
 
-    const role = room.editorCount < MAX_EDITORS ? UserRole.EDITOR : UserRole.VIEWER;
+    // Restore previous role if they were an editor, otherwise assign based on capacity
+    const role = previousRole === UserRole.EDITOR
+      ? (room.editorCount < MAX_EDITORS ? UserRole.EDITOR : UserRole.VIEWER)
+      : (room.editorCount < MAX_EDITORS ? UserRole.EDITOR : UserRole.VIEWER);
     const user: RoomUser = {
       socketId,
       sessionId,
-      nickname: generateNickname(),
-      color: assignColor(existingColors),
+      nickname: previousNickname || generateNickname(),
+      color: previousColor || assignColor(existingColors),
       role,
       joinedAt: Date.now(),
       cursor: undefined,

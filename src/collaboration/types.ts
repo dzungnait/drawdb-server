@@ -61,6 +61,8 @@ export interface ClientToServerEvents {
   'selection-change': (selection: SelectionPayload) => void;
   'request-edit-slot': () => void;
   'full-state-sync': (data: { tables: unknown[]; relationships: unknown[]; notes: unknown[]; areas: unknown[]; types?: unknown[]; enums?: unknown[] }) => void;
+  'request-full-state': () => void;
+  'full-state-for-peer': (data: { targetSocketId: string; data: { tables: unknown[]; relationships: unknown[]; notes: unknown[]; areas: unknown[]; types?: unknown[]; enums?: unknown[] } }) => void;
 }
 
 // Events: server → client
@@ -74,5 +76,6 @@ export interface ServerToClientEvents {
   'role-changed': (data: { role: UserRole; message: string }) => void;
   'edit-slot-available': (data: { message: string }) => void;
   'full-state-update': (data: { tables: unknown[]; relationships: unknown[]; notes: unknown[]; areas: unknown[]; types?: unknown[]; enums?: unknown[] }) => void;
+  'request-state-from-peer': (data: { requestingSocketId: string }) => void;
   'error': (data: { message: string }) => void;
 }
