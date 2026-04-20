@@ -184,6 +184,35 @@ export function registerSocketHandlers(io: IOServer): void {
       socket.to(`design:${designId}`).emit('full-state-update', data);
     });
 
+    // Explicit leave-room (client navigates away but socket may stay alive)
+    socket.on('leave-room', () => {
+      const designId = roomManager.getRoomForSocket(socket.id);
+      if (!designId) return;
+
+      const result = roomManager.removeUser(socket.id);
+      if (!result) return;
+
+      const { room, removedUser, promotedUser, releasedLocks } = result;
+      const roomKey = `design:${designId}`;
+
+      socket.leave(roomKey);
+
+      io.to(roomKey).emit('user-left', { socketId: socket.id });
+
+      for (const entityKey of releasedLocks) {
+        io.to(roomKey).emit('entity-unlocked', { entityKey, socketId: socket.id });
+      }
+
+      if (promotedUser) {
+        io.to(promotedUser.socketId).emit('role-changed', {
+          role: UserRole.EDITOR,
+          message: 'An editor left. You have been promoted to editor!',
+        });
+      }
+
+      console.log(`🚪 ${removedUser.nickname} left room ${designId} [${room.users.size} users remaining]`);
+    });
+
     socket.on('disconnect', () => {
       const result = roomManager.removeUser(socket.id);
       if (!result) return;
