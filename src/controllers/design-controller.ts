@@ -187,7 +187,11 @@ async function get(req: Request, res: Response) {
   try {
     const { id } = req.params;
 
-    const design = await DesignService.getDesign(id);
+    // Try by UUID first, then by share_token
+    let design = await DesignService.getDesign(id);
+    if (!design) {
+      design = await DesignService.getDesignByShareToken(id);
+    }
     if (!design) {
       return res.status(404).json({
         success: false,
@@ -195,7 +199,8 @@ async function get(req: Request, res: Response) {
       });
     }
 
-    const currentSnapshot = await DesignService.getSnapshot(id);
+    const designId = design.id;
+    const currentSnapshot = await DesignService.getSnapshot(designId);
     // If no snapshot exists, return empty diagram template
     const defaultContent = JSON.stringify({
       database: 'Generic',
@@ -220,11 +225,13 @@ async function get(req: Request, res: Response) {
       success: true,
       data: {
         ...design,
+        // Always return canonical UUID so client uses it as room key
+        id: designId,
         files: {
           'share.json': {
             content: contentData,
             size: contentData.length,
-            raw_url: `${req.protocol}://${req.get('host')}/designs/${id}/latest`,
+            raw_url: `${req.protocol}://${req.get('host')}/designs/${designId}/latest`,
             type: 'application/json',
             truncated: false,
             language: 'JSON',

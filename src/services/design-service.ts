@@ -328,10 +328,10 @@ export const DesignService = {
   ): Promise<{ designs: any[]; total: number }> => {
     const offset = (page - 1) * limit;
     
-    // Build search condition
+    // Build search condition (always exclude soft-deleted)
     const searchCondition = search
-      ? `WHERE name ILIKE $1 OR description ILIKE $1`
-      : '';
+      ? `WHERE deleted_at IS NULL AND (name ILIKE $1 OR description ILIKE $1)`
+      : 'WHERE deleted_at IS NULL';
     
     const params: any[] = search ? [`%${search}%`, limit, offset] : [limit, offset];
     
