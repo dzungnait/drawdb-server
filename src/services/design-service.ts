@@ -43,16 +43,16 @@ export const DesignService = {
     return result.rows[0] as Design;
   },
 
-  // Get design by ID
+  // Get design by ID (excludes soft-deleted)
   getDesign: async (designId: string): Promise<Design | null> => {
-    const query = 'SELECT * FROM designs WHERE id = $1';
+    const query = 'SELECT * FROM designs WHERE id = $1 AND deleted_at IS NULL';
     const result = await pool.query(query, [designId]);
     return result.rows[0] || null;
   },
 
-  // Get design by share token
+  // Get design by share token (excludes soft-deleted)
   getDesignByShareToken: async (shareToken: string): Promise<Design | null> => {
-    const query = 'SELECT * FROM designs WHERE share_token = $1';
+    const query = 'SELECT * FROM designs WHERE share_token = $1 AND deleted_at IS NULL';
     const result = await pool.query(query, [shareToken]);
     return result.rows[0] || null;
   },
@@ -75,8 +75,21 @@ export const DesignService = {
     return result.rows[0] as Design;
   },
 
-  // Delete design (cascade delete versions and snapshot)
+  // Soft-delete design
   deleteDesign: async (designId: string): Promise<void> => {
+    const query = 'UPDATE designs SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND deleted_at IS NULL';
+    await pool.query(query, [designId]);
+  },
+
+  // Restore a soft-deleted design
+  restoreDesign: async (designId: string): Promise<Design | null> => {
+    const query = 'UPDATE designs SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL RETURNING *';
+    const result = await pool.query(query, [designId]);
+    return result.rows[0] || null;
+  },
+
+  // Permanently delete a design (hard delete)
+  permanentlyDeleteDesign: async (designId: string): Promise<void> => {
     const query = 'DELETE FROM designs WHERE id = $1';
     await pool.query(query, [designId]);
   },

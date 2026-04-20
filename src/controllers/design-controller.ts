@@ -340,6 +340,53 @@ async function del(req: Request, res: Response) {
   }
 }
 
+// Restore soft-deleted design
+async function restore(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+
+    const design = await DesignService.restoreDesign(id);
+    if (!design) {
+      return res.status(404).json({
+        success: false,
+        message: 'Design not found or not deleted',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Design restored',
+      data: design,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: 'Something went wrong',
+    });
+  }
+}
+
+// Permanently delete design (hard delete)
+async function permanentDelete(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+
+    await DesignService.permanentlyDeleteDesign(id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Design permanently deleted',
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: 'Something went wrong',
+    });
+  }
+}
+
 // Get version history
 async function getCommits(req: Request, res: Response) {
   try {
@@ -599,4 +646,4 @@ async function updatePin(req: Request, res: Response) {
   }
 }
 
-export { createOrGet, get, update, del, getCommits, getRevision, getRevisionsForFile, listDesigns, createSnapshot, autoSave, getDesign, updateDesign, verifyPin, updatePin };
+export { createOrGet, get, update, del, restore, permanentDelete, getCommits, getRevision, getRevisionsForFile, listDesigns, createSnapshot, autoSave, getDesign, updateDesign, verifyPin, updatePin };

@@ -177,6 +177,28 @@ export async function initializeDatabase() {
       console.warn('⚠ PIN columns may already exist:', (err as Error).message);
     }
 
+    // Add soft-delete column
+    try {
+      await pool.query(`
+        ALTER TABLE designs
+          ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL
+      `);
+      console.log('✓ deleted_at column added to designs table');
+    } catch (err) {
+      console.warn('⚠ deleted_at column may already exist:', (err as Error).message);
+    }
+
+    // Index for soft-delete filtering
+    try {
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_designs_deleted_at
+        ON designs(deleted_at)
+      `);
+      console.log('✓ idx_designs_deleted_at created');
+    } catch (err) {
+      console.warn('⚠ Index idx_designs_deleted_at may already exist:', (err as Error).message);
+    }
+
     console.log('✅ Database initialized successfully with version control');
   } catch (error) {
     console.error('❌ Error initializing database:', error);

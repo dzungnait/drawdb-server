@@ -9,6 +9,7 @@ export interface Design {
   share_token?: string;
   pin_protected: boolean;
   pin_hash?: string;
+  deleted_at?: string | null;
 }
 
 export interface DesignVersion {

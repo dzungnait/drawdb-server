@@ -2,6 +2,8 @@ import express from 'express';
 import {
   createOrGet,
   del,
+  restore,
+  permanentDelete,
   get,
   getCommits,
   update,
@@ -34,6 +36,8 @@ designRouter.patch('/:id/pin', pinGuard as any, updatePin as any);
 // All routes below are protected by pinGuard
 designRouter.get('/:id', pinGuard as any, get as any);
 designRouter.delete('/:id', pinGuard as any, del as any);
+designRouter.post('/:id/restore', pinGuard as any, restore as any);
+designRouter.delete('/:id/permanent', pinGuard as any, permanentDelete as any);
 designRouter.patch('/:id', pinGuard as any, update as any);
 designRouter.post('/:id/autosave', pinGuard as any, autoSave as any);
 designRouter.post('/:id/snapshot', pinGuard as any, createSnapshot as any);
