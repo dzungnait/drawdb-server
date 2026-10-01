@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { emailRouter } from './routes/email-route';
 import { gistRouter } from './routes/gist-route';
 import { authRouter } from './routes/auth-route';
+import { diagramRouter } from './routes/diagram-route';
 import { config } from './config';
 import { checkOrigin, loadUser } from './auth/middleware';
 import { apiLimiter } from './middleware/rate-limit';
@@ -27,7 +28,7 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: config.limits.bodySize }));
 app.use(cookieParser());
 app.use(apiLimiter);
 
@@ -45,6 +46,7 @@ const databaseConfigured = Boolean(config.database.url);
 if (databaseConfigured) {
   app.use(checkOrigin, loadUser);
   app.use('/auth', authRouter);
+  app.use('/diagrams', diagramRouter);
 }
 
 app.use(notFoundHandler);

@@ -66,6 +66,13 @@ export const config = {
       github: oauthProvider('GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'),
     },
   },
+  limits: {
+    // Includes diagrams in the trash
+    diagramsPerUser: Number(env.MAX_DIAGRAMS_PER_USER || 1000),
+    // Request body limit, which bounds the size of one diagram
+    bodySize: env.MAX_BODY_SIZE || '5mb',
+    trashDays: Number(env.TRASH_DAYS || 30),
+  },
   mail: {
     service: env.MAIL_SERVICE || 'gmail',
     username: env.MAIL_USERNAME || '',

@@ -3,13 +3,15 @@ import { config } from './config';
 import { closePool } from './db';
 import { migrate } from './db/migrate';
 import { purgeExpiredSessions } from './auth/session';
+import { purgeTrash } from './services/diagram-service';
 
 async function start() {
   if (config.database.url) {
     await migrate();
     // Housekeeping; cheap enough to run hourly on every instance
     setInterval(
-      () => purgeExpiredSessions().catch((e) => console.error('Session cleanup failed:', e)),
+      () =>
+        Promise.all([purgeExpiredSessions(), purgeTrash()]).catch((e) => console.error('Cleanup failed:', e)),
       60 * 60 * 1000,
     ).unref();
   } else {
