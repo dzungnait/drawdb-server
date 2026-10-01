@@ -4,6 +4,7 @@ import { closePool } from './db';
 import { migrate } from './db/migrate';
 import { purgeExpiredSessions } from './auth/session';
 import { purgeTrash } from './services/diagram-service';
+import { purgeVersions } from './services/snapshots';
 
 async function start() {
   if (config.database.url) {
@@ -11,7 +12,7 @@ async function start() {
     // Housekeeping; cheap enough to run hourly on every instance
     setInterval(
       () =>
-        Promise.all([purgeExpiredSessions(), purgeTrash()]).catch((e) => console.error('Cleanup failed:', e)),
+        Promise.all([purgeExpiredSessions(), purgeTrash(), purgeVersions()]).catch((e) => console.error('Cleanup failed:', e)),
       60 * 60 * 1000,
     ).unref();
   } else {

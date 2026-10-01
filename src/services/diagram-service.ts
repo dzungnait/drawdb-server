@@ -1,6 +1,7 @@
 import { config } from '../config';
-import { query, queryOne } from '../db';
+import { query, queryOne, transaction } from '../db';
 import { conflict, forbidden, HttpError, notFound } from '../utils/http-error';
+import { keepCurrent, keepCurrentIfDue } from './snapshots';
 import { UserRow } from './user-service';
 
 export interface DiagramRow {
@@ -11,6 +12,7 @@ export interface DiagramRow {
   content: Record<string, unknown>;
   size_bytes: number;
   version: number;
+  updated_by: string | null;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
@@ -34,7 +36,7 @@ function roleOf(diagram: DiagramRow, user: UserRow): Role | null {
   return diagram.owner_id === user.id ? 'owner' : null;
 }
 
-const canWrite = (role: Role | null) => role === 'owner';
+export const canWrite = (role: Role | null) => role === 'owner';
 
 const SELECT_WITH_OWNER = `
   SELECT d.*, u.name AS owner_name, u.email AS owner_email
@@ -67,9 +69,10 @@ const full = (row: DiagramWithOwner, role: Role) => ({
   canWrite: canWrite(role),
 });
 
-const sizeOf = (content: unknown) => Buffer.byteLength(JSON.stringify(content));
+export const sizeOf = (content: unknown) => Buffer.byteLength(JSON.stringify(content));
 
-async function load(id: string, user: UserRow, { includeDeleted = false } = {}) {
+/** The diagram and the caller's role on it; 404 without access. */
+export async function load(id: string, user: UserRow, { includeDeleted = false } = {}) {
   const row = await queryOne<DiagramWithOwner>(`${SELECT_WITH_OWNER} WHERE d.id = $1`, [id]);
   // No access looks the same as not existing, so ids can't be probed
   const role = row ? roleOf(row, user) : null;
@@ -102,8 +105,8 @@ export async function createDiagram(user: UserRow, id: string, input: DiagramInp
   }
   try {
     await query(
-      `INSERT INTO diagrams (id, owner_id, name, database, content, size_bytes)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO diagrams (id, owner_id, updated_by, name, database, content, size_bytes)
+       VALUES ($1, $2, $2, $3, $4, $5, $6)`,
       [id, user.id, input.name, input.database, input.content, sizeOf(input.content)],
     );
   } catch (e) {
@@ -124,28 +127,36 @@ export async function updateDiagram(
   input: DiagramInput,
   { baseVersion, force = false }: { baseVersion?: number; force?: boolean },
 ) {
-  const { row, role } = await load(id, user);
+  const { role } = await load(id, user);
   if (!canWrite(role)) throw forbidden('read_only');
 
-  const updated = await queryOne<{ version: number; updated_at: Date }>(
-    `UPDATE diagrams
-        SET name = $3, database = $4, content = $5, size_bytes = $6,
-            version = version + 1, updated_at = now()
-      WHERE id = $1 AND deleted_at IS NULL AND ($7 OR version = $2)
-      RETURNING version, updated_at`,
-    [id, baseVersion ?? -1, input.name, input.database, input.content, sizeOf(input.content), force],
-  );
-  if (!updated) {
-    const current = await queryOne<{ version: number; updated_at: Date }>(
-      'SELECT version, updated_at FROM diagrams WHERE id = $1',
+  return transaction(async (db) => {
+    const { rows: [current] } = await db.query<{ version: number; updated_at: Date }>(
+      'SELECT version, updated_at FROM diagrams WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
       [id],
     );
-    throw new HttpError(409, 'version_conflict', 'The diagram was changed elsewhere', {
-      version: current?.version ?? row.version,
-      lastModified: current?.updated_at ?? row.updated_at,
-    });
-  }
-  return { diagramId: id, version: updated.version, lastModified: updated.updated_at };
+    if (!current) throw notFound('diagram_not_found');
+    const stale = current.version !== baseVersion;
+    if (stale && !force) {
+      throw new HttpError(409, 'version_conflict', 'The diagram was changed elsewhere', {
+        version: current.version,
+        lastModified: current.updated_at,
+      });
+    }
+    // Overwriting someone else's changes: keep them in the history
+    if (stale) await keepCurrent(db, id, 'pre_overwrite');
+    else await keepCurrentIfDue(db, id);
+
+    const { rows: [updated] } = await db.query<{ version: number; updated_at: Date }>(
+      `UPDATE diagrams
+          SET name = $2, database = $3, content = $4, size_bytes = $5, updated_by = $6,
+              version = version + 1, updated_at = now()
+        WHERE id = $1
+        RETURNING version, updated_at`,
+      [id, input.name, input.database, input.content, sizeOf(input.content), user.id],
+    );
+    return { diagramId: id, version: updated.version, lastModified: updated.updated_at };
+  });
 }
 
 export async function trashDiagram(id: string, user: UserRow) {

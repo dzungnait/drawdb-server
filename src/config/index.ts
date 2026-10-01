@@ -73,6 +73,14 @@ export const config = {
     bodySize: env.MAX_BODY_SIZE || '5mb',
     trashDays: Number(env.TRASH_DAYS || 30),
   },
+  versions: {
+    // While editing, the state before an edit is kept at most this often
+    intervalMinutes: Number(env.VERSION_INTERVAL_MINUTES || 10),
+    // Unnamed versions older than this are deleted (0 keeps them forever).
+    // Before that they are thinned out: all from the last day, then one
+    // per hour for a week, then one per day.
+    retentionDays: Number(env.VERSION_RETENTION_DAYS ?? 90),
+  },
   mail: {
     service: env.MAIL_SERVICE || 'gmail',
     username: env.MAIL_USERNAME || '',
