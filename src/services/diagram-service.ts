@@ -1,6 +1,7 @@
 import { config, mailEnabled } from '../config';
 import { query, queryOne, transaction } from '../db';
 import { conflict, forbidden, HttpError, notFound } from '../utils/http-error';
+import { currentShareLink } from '../utils/request-context';
 import { keepCurrent, keepCurrentIfDue } from './snapshots';
 import { UserRow } from './user-service';
 
@@ -36,8 +37,22 @@ export type MemberRole = 'editor' | 'viewer';
 export type Role = 'owner' | MemberRole;
 
 /** The caller's role on a diagram, or null without access. */
-function roleOf(diagram: DiagramWithOwner, user: UserRow): Role | null {
+function roleOf(diagram: DiagramWithOwner, user: UserRow | null): Role | null {
+  if (!user) return null;
   return diagram.owner_id === user.id ? 'owner' : diagram.member_role;
+}
+
+const RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 };
+
+/** How the caller got their role: they own it, it's shared with them, or a link. */
+export type Via = 'owner' | 'member' | 'link';
+
+interface Access {
+  row: DiagramWithOwner;
+  role: Role;
+  via: Via;
+  /** Opened with an edit link while signed out: signing in allows editing. */
+  signInToEdit: boolean;
 }
 
 export const canWrite = (role: Role | null) => role === 'owner' || role === 'editor';
@@ -50,7 +65,11 @@ const SELECT_FOR_USER = `
     JOIN users u ON u.id = d.owner_id
     LEFT JOIN diagram_members m ON m.diagram_id = d.id AND m.user_id = $1`;
 
-const owner = (row: DiagramWithOwner) => ({ id: row.owner_id, username: row.owner_name, email: row.owner_email });
+const owner = (row: DiagramWithOwner) => ({
+  id: row.owner_id,
+  username: row.owner_name,
+  email: row.owner_email,
+});
 
 /** List entry, shaped like the editor's local diagrams. */
 const summary = (row: DiagramWithOwner, user: UserRow) => ({
@@ -67,7 +86,7 @@ const summary = (row: DiagramWithOwner, user: UserRow) => ({
 });
 
 /** Full diagram, in the shape the editor loads. */
-const full = (row: DiagramWithOwner, role: Role) => ({
+const full = ({ row, role, via, signInToEdit }: Access) => ({
   ...row.content,
   diagramId: row.id,
   name: row.name,
@@ -77,6 +96,8 @@ const full = (row: DiagramWithOwner, role: Role) => ({
   lastModified: row.updated_at,
   role,
   canWrite: canWrite(role),
+  access: via,
+  signInToEdit,
 });
 
 export const sizeOf = (content: unknown) => Buffer.byteLength(JSON.stringify(content));
@@ -99,21 +120,58 @@ export async function claimInvites(user: UserRow) {
   );
 }
 
-const fetchForUser = (id: string, user: UserRow) =>
-  queryOne<DiagramWithOwner>(`${SELECT_FOR_USER} WHERE d.id = $2`, [user.id, id]);
+// Signed out matches no membership
+const NOBODY = '00000000-0000-0000-0000-000000000000';
 
-/** The diagram and the caller's role on it; 404 without access. */
-export async function load(id: string, user: UserRow, { includeDeleted = false } = {}) {
+const fetchForUser = (id: string, user: UserRow | null) =>
+  queryOne<DiagramWithOwner>(`${SELECT_FOR_USER} WHERE d.id = $2`, [user?.id ?? NOBODY, id]);
+
+/** The role a share link gives, if the request carries a valid one. */
+async function linkRole(diagramId: string) {
+  const token = currentShareLink();
+  if (!token) return null;
+  const link = await queryOne<{ role: MemberRole }>(
+    `SELECT role FROM share_links
+      WHERE diagram_id = $1 AND token = $2 AND (expires_at IS NULL OR expires_at > now())`,
+    [diagramId, token],
+  );
+  return link?.role ?? null;
+}
+
+/**
+ * The diagram and the caller's role on it; 404 without access. Signed-out
+ * callers only get in with a share link (and only to view).
+ */
+export async function load(
+  id: string,
+  user: UserRow | null,
+  { includeDeleted = false } = {},
+): Promise<Access> {
   let row = await fetchForUser(id, user);
-  if (row && !roleOf(row, user)) {
+  if (row && user && !roleOf(row, user)) {
     // Opening a link from an invitation before anything else
     await claimInvites(user);
     row = await fetchForUser(id, user);
   }
+  let role = row ? roleOf(row, user) : null;
+  let via: Via = role === 'owner' ? 'owner' : 'member';
+  let signInToEdit = false;
+
+  const fromLink = row && role !== 'owner' ? await linkRole(id) : null;
+  if (fromLink) {
+    const linkGives: Role = fromLink === 'editor' && user ? 'editor' : 'viewer';
+    signInToEdit = fromLink === 'editor' && !user;
+    if (!role || RANK[linkGives] > RANK[role]) {
+      role = linkGives;
+      via = 'link';
+    }
+  }
+
   // No access looks the same as not existing, so ids can't be probed
-  const role = row ? roleOf(row, user) : null;
-  if (!row || !role || (row.deleted_at && !includeDeleted)) throw notFound('diagram_not_found');
-  return { row, role };
+  if (!row || !role || (row.deleted_at && !includeDeleted)) {
+    throw notFound(currentShareLink() ? 'link_invalid' : 'diagram_not_found');
+  }
+  return { row, role, via, signInToEdit };
 }
 
 /**
@@ -140,9 +198,8 @@ export async function listDiagrams(
   return rows.map((row) => summary(row, user));
 }
 
-export async function getDiagram(id: string, user: UserRow) {
-  const { row, role } = await load(id, user);
-  return full(row, role);
+export async function getDiagram(id: string, user: UserRow | null) {
+  return full(await load(id, user));
 }
 
 export async function createDiagram(user: UserRow, id: string, input: DiagramInput) {
@@ -151,7 +208,11 @@ export async function createDiagram(user: UserRow, id: string, input: DiagramInp
     [user.id],
   );
   if (count!.n >= config.limits.diagramsPerUser) {
-    throw new HttpError(403, 'diagram_limit_reached', `You can keep up to ${config.limits.diagramsPerUser} diagrams`);
+    throw new HttpError(
+      403,
+      'diagram_limit_reached',
+      `You can keep up to ${config.limits.diagramsPerUser} diagrams`,
+    );
   }
   try {
     await query(
@@ -181,7 +242,9 @@ export async function updateDiagram(
   if (!canWrite(role)) throw forbidden('read_only');
 
   return transaction(async (db) => {
-    const { rows: [current] } = await db.query<{ version: number; updated_at: Date }>(
+    const {
+      rows: [current],
+    } = await db.query<{ version: number; updated_at: Date }>(
       'SELECT version, updated_at FROM diagrams WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
       [id],
     );
@@ -197,7 +260,9 @@ export async function updateDiagram(
     if (stale) await keepCurrent(db, id, 'pre_overwrite');
     else await keepCurrentIfDue(db, id);
 
-    const { rows: [updated] } = await db.query<{ version: number; updated_at: Date }>(
+    const {
+      rows: [updated],
+    } = await db.query<{ version: number; updated_at: Date }>(
       `UPDATE diagrams
           SET name = $2, database = $3, content = $4, size_bytes = $5, updated_by = $6,
               version = version + 1, updated_at = now()
@@ -231,8 +296,7 @@ export async function deleteDiagramForever(id: string, user: UserRow) {
 }
 
 export async function purgeTrash() {
-  await query(
-    `DELETE FROM diagrams WHERE deleted_at < now() - make_interval(days => $1)`,
-    [config.limits.trashDays],
-  );
+  await query(`DELETE FROM diagrams WHERE deleted_at < now() - make_interval(days => $1)`, [
+    config.limits.trashDays,
+  ]);
 }

@@ -16,7 +16,12 @@ interface PersonRow {
   avatar_url: string | null;
 }
 
-const person = (row: PersonRow) => ({ id: row.id, name: row.name, email: row.email, avatarUrl: row.avatar_url });
+const person = (row: PersonRow) => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  avatarUrl: row.avatar_url,
+});
 
 async function loadAsOwner(diagramId: string, user: UserRow) {
   const access = await load(diagramId, user);
@@ -26,9 +31,13 @@ async function loadAsOwner(diagramId: string, user: UserRow) {
 
 /** Who has access. Pending invitations are only shown to the owner. */
 export async function listMembers(diagramId: string, user: UserRow) {
-  const { row, role } = await load(diagramId, user);
+  const { row, role, via } = await load(diagramId, user);
+  // Someone with just the link doesn't get to see who else has access
+  if (via === 'link') throw forbidden('members_only');
   const [owner, members, invites] = await Promise.all([
-    queryOne<PersonRow>('SELECT id, name, email, avatar_url FROM users WHERE id = $1', [row.owner_id]),
+    queryOne<PersonRow>('SELECT id, name, email, avatar_url FROM users WHERE id = $1', [
+      row.owner_id,
+    ]),
     query<PersonRow & { role: MemberRole; created_at: Date }>(
       `SELECT u.id, u.name, u.email, u.avatar_url, m.role, m.created_at
          FROM diagram_members m JOIN users u ON u.id = m.user_id
@@ -51,7 +60,12 @@ export async function listMembers(diagramId: string, user: UserRow) {
   };
 }
 
-function sendShareEmail(to: string, from: UserRow, diagram: { id: string; name: string }, role: MemberRole) {
+function sendShareEmail(
+  to: string,
+  from: UserRow,
+  diagram: { id: string; name: string },
+  role: MemberRole,
+) {
   const link = `${config.server.appUrl}/editor/diagrams/${diagram.id}`;
   const name = diagram.name || 'Untitled diagram';
   return sendTransactionalEmail(
@@ -73,10 +87,16 @@ function sendShareEmail(to: string, from: UserRow, diagram: { id: string; name: 
  * right away; otherwise the invitation waits until they sign up.
  * Sharing again with the same person changes their role.
  */
-export async function shareDiagram(diagramId: string, user: UserRow, rawEmail: string, role: MemberRole) {
+export async function shareDiagram(
+  diagramId: string,
+  user: UserRow,
+  rawEmail: string,
+  role: MemberRole,
+) {
   const { row } = await loadAsOwner(diagramId, user);
   const email = normalizeEmail(rawEmail);
-  if (email === user.email) throw badRequest('cannot_share_with_owner', 'You already own this diagram');
+  if (email === user.email)
+    throw badRequest('cannot_share_with_owner', 'You already own this diagram');
 
   const shares = await queryOne<{ n: number }>(
     `SELECT (SELECT count(*) FROM diagram_members WHERE diagram_id = $1)
@@ -84,7 +104,11 @@ export async function shareDiagram(diagramId: string, user: UserRow, rawEmail: s
     [diagramId],
   );
   if (Number(shares!.n) >= MAX_SHARES) {
-    throw new HttpError(403, 'share_limit_reached', `A diagram can be shared with up to ${MAX_SHARES} people`);
+    throw new HttpError(
+      403,
+      'share_limit_reached',
+      `A diagram can be shared with up to ${MAX_SHARES} people`,
+    );
   }
 
   const target = await findUserByEmail(email);
@@ -107,13 +131,17 @@ export async function shareDiagram(diagramId: string, user: UserRow, rawEmail: s
   return { status: target ? 'added' : 'invited', ...(await listMembers(diagramId, user)) };
 }
 
-export async function changeRole(diagramId: string, user: UserRow, memberId: string, role: MemberRole) {
+export async function changeRole(
+  diagramId: string,
+  user: UserRow,
+  memberId: string,
+  role: MemberRole,
+) {
   await loadAsOwner(diagramId, user);
-  const updated = await query('UPDATE diagram_members SET role = $3 WHERE diagram_id = $1 AND user_id = $2 RETURNING 1', [
-    diagramId,
-    memberId,
-    role,
-  ]);
+  const updated = await query(
+    'UPDATE diagram_members SET role = $3 WHERE diagram_id = $1 AND user_id = $2 RETURNING 1',
+    [diagramId, memberId, role],
+  );
   if (!updated.length) throw notFound('member_not_found');
   return listMembers(diagramId, user);
 }
@@ -122,19 +150,19 @@ export async function changeRole(diagramId: string, user: UserRow, memberId: str
 export async function removeMember(diagramId: string, user: UserRow, memberId: string) {
   const { role } = await load(diagramId, user);
   if (role !== 'owner' && memberId !== user.id) throw forbidden('owner_only');
-  const removed = await query('DELETE FROM diagram_members WHERE diagram_id = $1 AND user_id = $2 RETURNING 1', [
-    diagramId,
-    memberId,
-  ]);
+  const removed = await query(
+    'DELETE FROM diagram_members WHERE diagram_id = $1 AND user_id = $2 RETURNING 1',
+    [diagramId, memberId],
+  );
   if (!removed.length) throw notFound('member_not_found');
 }
 
 export async function cancelInvite(diagramId: string, user: UserRow, inviteId: string) {
   await loadAsOwner(diagramId, user);
-  const removed = await query('DELETE FROM diagram_invites WHERE diagram_id = $1 AND id = $2 RETURNING 1', [
-    diagramId,
-    inviteId,
-  ]);
+  const removed = await query(
+    'DELETE FROM diagram_invites WHERE diagram_id = $1 AND id = $2 RETURNING 1',
+    [diagramId, inviteId],
+  );
   if (!removed.length) throw notFound('invite_not_found');
   return listMembers(diagramId, user);
 }

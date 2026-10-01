@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { config } from '../config';
 import * as diagrams from '../services/diagram-service';
 
 const id = z.string().uuid();
@@ -31,7 +32,9 @@ const toInput = (body: z.infer<typeof diagramBody>): diagrams.DiagramInput => {
 };
 
 export async function list(req: Request, res: Response) {
-  const { scope } = z.object({ scope: z.enum(['all', 'owned', 'shared']).default('all') }).parse(req.query);
+  const { scope } = z
+    .object({ scope: z.enum(['all', 'owned', 'shared']).default('all') })
+    .parse(req.query);
   res.json({ diagrams: await diagrams.listDiagrams(req.user!, { scope }) });
 }
 
@@ -40,13 +43,21 @@ export async function trash(req: Request, res: Response) {
 }
 
 export async function get(req: Request, res: Response) {
-  res.json({ diagram: await diagrams.getDiagram(id.parse(req.params.id), req.user!) });
+  // Anyone may ask, signed in or not; unverified accounts count as signed out
+  // where verification is required
+  const user =
+    req.user && (!config.auth.requireEmailVerification || req.user.email_verified_at)
+      ? req.user
+      : null;
+  res.json({ diagram: await diagrams.getDiagram(id.parse(req.params.id), user) });
 }
 
 export async function create(req: Request, res: Response) {
   const body = diagramBody.extend({ diagramId: id }).parse(req.body);
   const { diagramId, ...rest } = body;
-  res.status(201).json({ diagram: await diagrams.createDiagram(req.user!, diagramId, toInput(rest)) });
+  res
+    .status(201)
+    .json({ diagram: await diagrams.createDiagram(req.user!, diagramId, toInput(rest)) });
 }
 
 export async function update(req: Request, res: Response) {
