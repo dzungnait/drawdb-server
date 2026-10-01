@@ -1,14 +1,19 @@
-import { createTransport } from 'nodemailer';
+import { createTransport, Transporter } from 'nodemailer';
 import { type Attachment } from 'nodemailer/lib/mailer';
-import { config } from '../config';
+import { config, mailEnabled } from '../config';
 
-const transporter = createTransport({
-  service: config.mail.service,
-  auth: {
-    user: config.mail.username,
-    pass: config.mail.password,
-  },
-});
+let transporter: Transporter | null = null;
+const getTransporter = () =>
+  (transporter ??= createTransport({
+    service: config.mail.service,
+    auth: {
+      user: config.mail.username,
+      pass: config.mail.password,
+    },
+  }));
+
+/** Messages "sent" while running tests, newest last. */
+export const testOutbox: { to: string; subject: string; html: string }[] = [];
 
 async function sendEmail(
   subject: string,
@@ -17,25 +22,27 @@ async function sendEmail(
   from: string,
   attachments: Attachment[] = [],
 ) {
-  const options = {
-    from,
-    to,
-    subject,
-    html: message,
-    attachments,
-  };
-
-  return new Promise((resolve, reject) => {
-    transporter.sendMail(options, (err, info) => {
-      if (err) {
-        console.error('Email sending failed:', err);
-        reject(new Error(err.message));
-      } else {
-        console.log('Email sent:', info.messageId);
-        resolve(info.messageId);
-      }
-    });
-  });
+  if (config.test) {
+    testOutbox.push({ to, subject, html: message });
+    return 'test';
+  }
+  const info = await getTransporter().sendMail({ from, to, subject, html: message, attachments });
+  return info.messageId;
 }
 
-export { sendEmail };
+/** Sends a transactional email if mail is configured; never throws. */
+async function sendTransactionalEmail(to: string, subject: string, html: string) {
+  if (!config.test && !mailEnabled()) {
+    console.warn(`Mail is not configured; not sending "${subject}" to ${to}`);
+    return false;
+  }
+  try {
+    await sendEmail(subject, html, to, config.mail.from);
+    return true;
+  } catch (e) {
+    console.error('Email sending failed:', e);
+    return false;
+  }
+}
+
+export { sendEmail, sendTransactionalEmail };
