@@ -18,3 +18,6 @@ export const apiLimiter = rateLimit(options(1, 300));
 
 /** Sign-in, sign-up and anything that sends email. */
 export const authLimiter = rateLimit(options(15, 20));
+
+/** Sharing, which can send email to any address. */
+export const shareLimiter = rateLimit(options(60, 60));

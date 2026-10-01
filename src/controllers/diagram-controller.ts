@@ -31,7 +31,8 @@ const toInput = (body: z.infer<typeof diagramBody>): diagrams.DiagramInput => {
 };
 
 export async function list(req: Request, res: Response) {
-  res.json({ diagrams: await diagrams.listDiagrams(req.user!) });
+  const { scope } = z.object({ scope: z.enum(['all', 'owned', 'shared']).default('all') }).parse(req.query);
+  res.json({ diagrams: await diagrams.listDiagrams(req.user!, { scope }) });
 }
 
 export async function trash(req: Request, res: Response) {

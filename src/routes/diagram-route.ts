@@ -1,6 +1,8 @@
 import express from 'express';
 import * as c from '../controllers/diagram-controller';
 import * as v from '../controllers/version-controller';
+import * as m from '../controllers/member-controller';
+import { shareLimiter } from '../middleware/rate-limit';
 import { asyncHandler as h, requireUser } from '../auth/middleware';
 
 const diagramRouter = express.Router();
@@ -22,5 +24,11 @@ diagramRouter.get('/:id/versions/:versionId', h(v.get));
 diagramRouter.patch('/:id/versions/:versionId', h(v.rename));
 diagramRouter.delete('/:id/versions/:versionId', h(v.remove));
 diagramRouter.post('/:id/versions/:versionId/restore', h(v.restore));
+
+diagramRouter.get('/:id/members', h(m.list));
+diagramRouter.post('/:id/members', shareLimiter, h(m.share));
+diagramRouter.patch('/:id/members/:userId', h(m.changeRole));
+diagramRouter.delete('/:id/members/:userId', h(m.remove));
+diagramRouter.delete('/:id/invites/:inviteId', h(m.cancelInvite));
 
 export { diagramRouter };

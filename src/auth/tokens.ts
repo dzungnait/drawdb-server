@@ -36,10 +36,10 @@ export async function consumeToken(token: string, purpose: Purpose) {
   return row?.user_id ?? null;
 }
 
-const escapeHtml = (s: string) =>
+export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-const layout = (title: string, body: string, link: string, action: string) => `
+export const layout = (title: string, body: string, link: string, action: string) => `
 <html><body style="font-family:sans-serif;color:#222;max-width:520px;margin:auto">
   <h2>${title}</h2>
   ${body}

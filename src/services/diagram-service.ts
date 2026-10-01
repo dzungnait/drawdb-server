@@ -1,4 +1,4 @@
-import { config } from '../config';
+import { config, mailEnabled } from '../config';
 import { query, queryOne, transaction } from '../db';
 import { conflict, forbidden, HttpError, notFound } from '../utils/http-error';
 import { keepCurrent, keepCurrentIfDue } from './snapshots';
@@ -21,6 +21,9 @@ export interface DiagramRow {
 interface DiagramWithOwner extends DiagramRow {
   owner_name: string;
   owner_email: string;
+  /** The caller's membership role, if the diagram is shared with them. */
+  member_role: MemberRole | null;
+  member_count: number;
 }
 
 export interface DiagramInput {
@@ -29,27 +32,34 @@ export interface DiagramInput {
   content: Record<string, unknown>;
 }
 
-export type Role = 'owner';
+export type MemberRole = 'editor' | 'viewer';
+export type Role = 'owner' | MemberRole;
 
 /** The caller's role on a diagram, or null without access. */
-function roleOf(diagram: DiagramRow, user: UserRow): Role | null {
-  return diagram.owner_id === user.id ? 'owner' : null;
+function roleOf(diagram: DiagramWithOwner, user: UserRow): Role | null {
+  return diagram.owner_id === user.id ? 'owner' : diagram.member_role;
 }
 
-export const canWrite = (role: Role | null) => role === 'owner';
+export const canWrite = (role: Role | null) => role === 'owner' || role === 'editor';
 
-const SELECT_WITH_OWNER = `
-  SELECT d.*, u.name AS owner_name, u.email AS owner_email
-    FROM diagrams d JOIN users u ON u.id = d.owner_id`;
+/** Diagrams with their owner and the role of user $1 on them. */
+const SELECT_FOR_USER = `
+  SELECT d.*, u.name AS owner_name, u.email AS owner_email, m.role AS member_role,
+         (SELECT count(*)::int FROM diagram_members dm WHERE dm.diagram_id = d.id) AS member_count
+    FROM diagrams d
+    JOIN users u ON u.id = d.owner_id
+    LEFT JOIN diagram_members m ON m.diagram_id = d.id AND m.user_id = $1`;
 
 const owner = (row: DiagramWithOwner) => ({ id: row.owner_id, username: row.owner_name, email: row.owner_email });
 
 /** List entry, shaped like the editor's local diagrams. */
-const summary = (row: DiagramWithOwner) => ({
+const summary = (row: DiagramWithOwner, user: UserRow) => ({
   diagramId: row.id,
   name: row.name,
   database: row.database,
   owner: owner(row),
+  role: roleOf(row, user),
+  sharedWith: row.member_count,
   sizeBytes: row.size_bytes,
   version: row.version,
   lastModified: row.updated_at,
@@ -71,23 +81,63 @@ const full = (row: DiagramWithOwner, role: Role) => ({
 
 export const sizeOf = (content: unknown) => Buffer.byteLength(JSON.stringify(content));
 
+/**
+ * Turns invitations sent to the user's email into memberships. Only once
+ * the email is proven theirs, unless the server can't send mail at all
+ * (then nobody can verify, and the email is taken on trust).
+ */
+export async function claimInvites(user: UserRow) {
+  if (!user.email_verified_at && mailEnabled()) return;
+  await query(
+    `WITH claimed AS (DELETE FROM diagram_invites WHERE email = $2 RETURNING diagram_id, role, invited_by)
+     INSERT INTO diagram_members (diagram_id, user_id, role, invited_by)
+     SELECT c.diagram_id, $1, c.role, c.invited_by
+       FROM claimed c JOIN diagrams d ON d.id = c.diagram_id
+      WHERE d.owner_id <> $1
+     ON CONFLICT (diagram_id, user_id) DO NOTHING`,
+    [user.id, user.email],
+  );
+}
+
+const fetchForUser = (id: string, user: UserRow) =>
+  queryOne<DiagramWithOwner>(`${SELECT_FOR_USER} WHERE d.id = $2`, [user.id, id]);
+
 /** The diagram and the caller's role on it; 404 without access. */
 export async function load(id: string, user: UserRow, { includeDeleted = false } = {}) {
-  const row = await queryOne<DiagramWithOwner>(`${SELECT_WITH_OWNER} WHERE d.id = $1`, [id]);
+  let row = await fetchForUser(id, user);
+  if (row && !roleOf(row, user)) {
+    // Opening a link from an invitation before anything else
+    await claimInvites(user);
+    row = await fetchForUser(id, user);
+  }
   // No access looks the same as not existing, so ids can't be probed
   const role = row ? roleOf(row, user) : null;
   if (!row || !role || (row.deleted_at && !includeDeleted)) throw notFound('diagram_not_found');
   return { row, role };
 }
 
-export async function listDiagrams(user: UserRow, { trash = false } = {}) {
+/**
+ * The user's diagrams: their own and those shared with them. The trash
+ * only has their own; shared diagrams in someone's trash aren't listed.
+ */
+export async function listDiagrams(
+  user: UserRow,
+  { trash = false, scope = 'all' }: { trash?: boolean; scope?: 'all' | 'owned' | 'shared' } = {},
+) {
+  await claimInvites(user);
+  const owned = trash || scope === 'owned';
+  const condition = owned
+    ? 'd.owner_id = $1'
+    : scope === 'shared'
+      ? 'm.user_id IS NOT NULL'
+      : '(d.owner_id = $1 OR m.user_id IS NOT NULL)';
   const rows = await query<DiagramWithOwner>(
-    `${SELECT_WITH_OWNER}
-      WHERE d.owner_id = $1 AND (d.deleted_at IS NOT NULL) = $2
+    `${SELECT_FOR_USER}
+      WHERE ${condition} AND (d.deleted_at IS NOT NULL) = $2
       ORDER BY ${trash ? 'd.deleted_at' : 'd.updated_at'} DESC`,
     [user.id, trash],
   );
-  return rows.map(summary);
+  return rows.map((row) => summary(row, user));
 }
 
 export async function getDiagram(id: string, user: UserRow) {
