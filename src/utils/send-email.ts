@@ -3,14 +3,11 @@ import { type Attachment } from 'nodemailer/lib/mailer';
 import { config, mailEnabled } from '../config';
 
 let transporter: Transporter | null = null;
-const getTransporter = () =>
-  (transporter ??= createTransport({
-    service: config.mail.service,
-    auth: {
-      user: config.mail.username,
-      pass: config.mail.password,
-    },
-  }));
+const getTransporter = () => {
+  const { host, port, secure, service, username, password } = config.mail;
+  const auth = username ? { user: username, pass: password } : undefined;
+  return (transporter ??= createTransport(host ? { host, port, secure, auth } : { service, auth }));
+};
 
 /** Messages "sent" while running tests, newest last. */
 export const testOutbox: { to: string; subject: string; html: string }[] = [];

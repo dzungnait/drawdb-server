@@ -82,11 +82,18 @@ export const config = {
     retentionDays: Number(env.VERSION_RETENTION_DAYS ?? 90),
   },
   mail: {
+    // Any SMTP server; without it, a well-known service (Gmail...)
+    host: env.MAIL_HOST || '',
+    port: Number(env.MAIL_PORT || 587),
+    // TLS from the start (port 465); otherwise STARTTLS when offered
+    secure: bool(env.MAIL_SECURE, env.MAIL_PORT === '465'),
     service: env.MAIL_SERVICE || 'gmail',
     username: env.MAIL_USERNAME || '',
     password: env.MAIL_PASSWORD || '',
-    from: env.MAIL_FROM || env.MAIL_USERNAME || '',
+    from: env.MAIL_FROM || env.MAIL_USERNAME || 'drawDB <drawdb@localhost>',
   },
 };
 
-export const mailEnabled = () => Boolean(config.mail.username && config.mail.password);
+/** An SMTP host (sign-in optional), or a service with credentials. */
+export const mailEnabled = () =>
+  Boolean(config.mail.host || (config.mail.username && config.mail.password));
