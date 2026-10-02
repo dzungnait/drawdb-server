@@ -9,7 +9,7 @@ let migrated: Promise<void> | null = null;
 export const setupDb = () => (migrated ??= migrate(() => {}));
 
 export async function resetData() {
-  await query('TRUNCATE users, oauth_accounts, sessions, auth_tokens, diagrams, diagram_versions, diagram_members, diagram_invites, share_links CASCADE');
+  await query('TRUNCATE users, oauth_accounts, sessions, auth_tokens, diagrams, diagram_versions, diagram_members, diagram_invites, share_links, teams, team_members, team_invites, diagram_team_shares CASCADE');
 }
 
 /** A cookie-keeping client that sends the app's Origin like a browser. */

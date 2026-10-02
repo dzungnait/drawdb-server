@@ -3,6 +3,7 @@ import * as c from '../controllers/diagram-controller';
 import * as v from '../controllers/version-controller';
 import * as m from '../controllers/member-controller';
 import * as l from '../controllers/link-controller';
+import * as t from '../controllers/team-controller';
 import { withShareLink } from '../utils/request-context';
 import { shareLimiter } from '../middleware/rate-limit';
 import { asyncHandler as h, requireUser } from '../auth/middleware';
@@ -42,5 +43,9 @@ diagramRouter.get('/:id/links', h(l.list));
 diagramRouter.put('/:id/links/:role', h(l.set));
 diagramRouter.post('/:id/links/:role/regenerate', h(l.regenerate));
 diagramRouter.delete('/:id/links/:role', h(l.remove));
+
+diagramRouter.post('/:id/teams', h(t.share));
+diagramRouter.patch('/:id/teams/:teamId', h(t.changeShare));
+diagramRouter.delete('/:id/teams/:teamId', h(t.unshare));
 
 export { diagramRouter };

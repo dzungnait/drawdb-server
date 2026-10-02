@@ -25,7 +25,12 @@ interface DiagramWithOwner extends DiagramRow {
   owner_email: string;
   /** The caller's membership role, if the diagram is shared with them. */
   member_role: MemberRole | null;
+  /** The best role the caller gets through teams the diagram is shared with. */
+  team_role: MemberRole | null;
+  /** Those teams. */
+  team_ids: string[];
   member_count: number;
+  team_count: number;
 }
 
 export interface DiagramInput {
@@ -40,10 +45,15 @@ export type Role = 'owner' | MemberRole;
 /** The caller's role on a diagram, or null without access. */
 function roleOf(diagram: DiagramWithOwner, user: UserRow | null): Role | null {
   if (!user) return null;
-  return diagram.owner_id === user.id ? 'owner' : diagram.member_role;
+  if (diagram.owner_id === user.id) return 'owner';
+  return best(diagram.member_role, diagram.team_role);
 }
 
 const RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 };
+
+/** The higher of two roles (either may be missing). */
+const best = <R extends Role>(a: R | null, b: R | null) =>
+  !a ? b : !b ? a : RANK[a] >= RANK[b] ? a : b;
 
 /** How the caller got their role: they own it, it's shared with them, or a link. */
 export type Via = 'owner' | 'member' | 'link';
@@ -61,10 +71,20 @@ export const canWrite = (role: Role | null) => role === 'owner' || role === 'edi
 /** Diagrams with their owner and the role of user $1 on them. */
 const SELECT_FOR_USER = `
   SELECT d.*, u.name AS owner_name, u.email AS owner_email, m.role AS member_role,
-         (SELECT count(*)::int FROM diagram_members dm WHERE dm.diagram_id = d.id) AS member_count
+         t.team_role, coalesce(t.team_ids, '{}') AS team_ids,
+         (SELECT count(*)::int FROM diagram_members dm WHERE dm.diagram_id = d.id) AS member_count,
+         (SELECT count(*)::int FROM diagram_team_shares s WHERE s.diagram_id = d.id) AS team_count
     FROM diagrams d
     JOIN users u ON u.id = d.owner_id
-    LEFT JOIN diagram_members m ON m.diagram_id = d.id AND m.user_id = $1`;
+    LEFT JOIN diagram_members m ON m.diagram_id = d.id AND m.user_id = $1
+    LEFT JOIN LATERAL (
+      SELECT CASE WHEN bool_or(s.role = 'editor') THEN 'editor' ELSE 'viewer' END AS team_role,
+             array_agg(s.team_id) AS team_ids
+        FROM diagram_team_shares s
+        JOIN team_members tm ON tm.team_id = s.team_id AND tm.user_id = $1
+       WHERE s.diagram_id = d.id
+      HAVING count(*) > 0
+    ) t ON true`;
 
 const owner = (row: DiagramWithOwner) => ({
   id: row.owner_id,
@@ -80,6 +100,9 @@ const summary = (row: DiagramWithOwner, user: UserRow) => ({
   owner: owner(row),
   role: roleOf(row, user),
   sharedWith: row.member_count,
+  sharedWithTeams: row.team_count,
+  // The caller's teams it's shared with
+  teamIds: row.team_ids,
   sizeBytes: row.size_bytes,
   version: row.version,
   lastModified: row.updated_at,
@@ -117,6 +140,13 @@ export async function claimInvites(user: UserRow) {
        FROM claimed c JOIN diagrams d ON d.id = c.diagram_id
       WHERE d.owner_id <> $1
      ON CONFLICT (diagram_id, user_id) DO NOTHING`,
+    [user.id, user.email],
+  );
+  await query(
+    `WITH claimed AS (DELETE FROM team_invites WHERE email = $2 RETURNING team_id, role, invited_by)
+     INSERT INTO team_members (team_id, user_id, role, invited_by)
+     SELECT team_id, $1, role, invited_by FROM claimed
+     ON CONFLICT (team_id, user_id) DO NOTHING`,
     [user.id, user.email],
   );
 }
@@ -185,13 +215,14 @@ export async function listDiagrams(
 ) {
   await claimInvites(user);
   const owned = trash || scope === 'owned';
+  const shared = '(d.member_role IS NOT NULL OR d.team_role IS NOT NULL)';
   const condition = owned
     ? 'd.owner_id = $1'
     : scope === 'shared'
-      ? 'm.user_id IS NOT NULL'
-      : '(d.owner_id = $1 OR m.user_id IS NOT NULL)';
+      ? `d.owner_id <> $1 AND ${shared}`
+      : `(d.owner_id = $1 OR ${shared})`;
   const rows = await query<DiagramWithOwner>(
-    `${SELECT_FOR_USER}
+    `SELECT * FROM (${SELECT_FOR_USER}) d
       WHERE ${condition} AND (d.deleted_at IS NOT NULL) = $2
       ORDER BY ${trash ? 'd.deleted_at' : 'd.updated_at'} DESC`,
     [user.id, trash],

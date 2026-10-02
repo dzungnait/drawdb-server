@@ -6,6 +6,7 @@ import { emailRouter } from './routes/email-route';
 import { gistRouter } from './routes/gist-route';
 import { authRouter } from './routes/auth-route';
 import { diagramRouter } from './routes/diagram-route';
+import { teamRouter } from './routes/team-route';
 import { config } from './config';
 import { checkOrigin, loadUser } from './auth/middleware';
 import { apiLimiter } from './middleware/rate-limit';
@@ -47,6 +48,7 @@ if (databaseConfigured) {
   app.use(checkOrigin, loadUser);
   app.use('/auth', authRouter);
   app.use('/diagrams', diagramRouter);
+  app.use('/teams', teamRouter);
 }
 
 app.use(notFoundHandler);

@@ -5,6 +5,7 @@ import { badRequest, forbidden, HttpError, notFound } from '../utils/http-error'
 import { sendTransactionalEmail } from '../utils/send-email';
 import { revalidateRoom } from '../collab/rooms';
 import { load, MemberRole } from './diagram-service';
+import { teamsOfDiagram } from './team-service';
 import { findUserByEmail, normalizeEmail, UserRow } from './user-service';
 
 /** Members plus pending invitations, per diagram. */
@@ -35,7 +36,7 @@ export async function listMembers(diagramId: string, user: UserRow) {
   const { row, role, via } = await load(diagramId, user);
   // Someone with just the link doesn't get to see who else has access
   if (via === 'link') throw forbidden('members_only');
-  const [owner, members, invites] = await Promise.all([
+  const [owner, members, invites, teams] = await Promise.all([
     queryOne<PersonRow>('SELECT id, name, email, avatar_url FROM users WHERE id = $1', [
       row.owner_id,
     ]),
@@ -52,10 +53,12 @@ export async function listMembers(diagramId: string, user: UserRow) {
           [diagramId],
         )
       : Promise.resolve([]),
+    teamsOfDiagram(diagramId),
   ]);
   return {
     role,
     owner: person(owner!),
+    teams,
     members: members.map((m) => ({ ...person(m), role: m.role, since: m.created_at })),
     invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role, since: i.created_at })),
   };

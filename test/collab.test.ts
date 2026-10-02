@@ -325,3 +325,23 @@ describe('changes from outside the room', () => {
     expect(await a.next('reset', 2)).toMatchObject({ state: { name: 'Shop' } });
   });
 });
+
+describe('teams', () => {
+  it('disconnects people removed from a team the diagram is shared with', async () => {
+    const ada = await account('ada@example.com');
+    const bob = await account('bob@example.com');
+    const id = await diagram(ada);
+    const team = await ada.call('post', '/teams', { name: 'Backend' });
+    const teamId = team.body.team.id;
+    await ada.call('post', `/teams/${teamId}/members`, { email: 'bob@example.com', role: 'member' });
+    await ada.call('post', `/diagrams/${id}/teams`, { teamId, role: 'editor' });
+
+    const b = await client(bob.cookie);
+    expect(await b.emit('join', { diagramId: id, clientId: 'b' })).toMatchObject({ role: 'editor' });
+    await ada.call('patch', `/diagrams/${id}/teams/${teamId}`, { role: 'viewer' });
+    expect(await b.next('role')).toEqual({ role: 'viewer', canWrite: false });
+
+    await ada.call('delete', `/teams/${teamId}/members/${bob.id}`);
+    expect(await b.next('kicked')).toEqual({ diagramId: id });
+  });
+});

@@ -66,3 +66,9 @@ People editing the same diagram see each other's changes, cursors and selections
 - Access is checked like the REST API: editors edit, viewers and view links watch. Removing someone, turning a link off or moving the diagram to the trash disconnects them right away.
 
 Run a single instance: open diagrams live in that process's memory. (Several instances would need every editor of a diagram routed to the same one.)
+
+### Teams
+
+Anyone can create a team (they become its admin) and add people by email; addresses without an account get an invitation that turns into membership when they sign up, like diagram invitations. Admins manage members and can rename or delete the team; a team always keeps at least one admin.
+
+A diagram's owner can share it with any team they're in, as editor or viewer. Everyone in the team gets that access (the best of it and any personal share counts), and it ends as soon as they leave the team or the share is removed, also for people with the diagram open. Diagrams still belong to a person: deleting a team only removes the access it gave.
