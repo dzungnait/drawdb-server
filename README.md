@@ -127,3 +127,14 @@ The owner can hand a diagram over to someone it's already shared with (`POST /di
 ### Comments
 
 Everyone a diagram is shared with, viewers included, can comment on its tables and fields (`/diagrams/:id/comments`). Comments form threads that can be answered and resolved (an answer opens a resolved thread again). Authors edit their own comments; the author or the diagram's owner can delete one, and deleting the first comment removes the thread. People who only have a link don't see comments, since they show who wrote them. Everyone with the diagram open is told when comments change and fetches them again.
+
+### Importing from the earlier server
+
+`scripts/import-legacy.mjs` copies the diagrams of the earlier drawDB server (tables `designs`, `design_snapshot`, `design_versions`) into this one: same diagram ids, all owned by one existing account, old versions as named versions ("Old version 12"). The old PINs and share tokens aren't carried over; share the diagrams instead. It only reads the old database, writes in one transaction, and skips diagrams already imported, so it can be run again.
+
+```bash
+node scripts/import-legacy.mjs --from <old database url> --to <this server's database url> \
+  --owner you@example.com --dry-run   # then without --dry-run
+```
+
+The owner signs up first. On Railway, use the Postgres service's public URL (`DATABASE_PUBLIC_URL`) with the database names.
