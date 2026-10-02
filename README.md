@@ -49,6 +49,49 @@ Session cookies work best when the app and the API share a site. Two setups:
 
 Self-hosted with Docker: `docker compose -f compose.prod.yaml --env-file .env up -d --build`.
 
+Everything on one machine (Postgres, API, frontend, backups), with the
+frontend checked out next to this repo as `../drawdb`:
+`docker compose -f compose.local.yaml up -d --build`, then open
+http://localhost:8080. Mail settings go in `.env.local` (see below).
+
+### Mail
+
+Email verification, password reset and invitations need mail. Without it,
+password reset is off and invitations are claimed without verifying.
+
+- **Any SMTP server:** `MAIL_HOST`, `MAIL_PORT`, optional `MAIL_USERNAME` /
+  `MAIL_PASSWORD`, `MAIL_SECURE=true` for TLS from the start (port 465).
+- **A well-known service** (Gmail...): `MAIL_SERVICE`, `MAIL_USERNAME`,
+  `MAIL_PASSWORD`.
+- `MAIL_FROM` sets the sender.
+
+**Gmail:** turn on 2-Step Verification for the account, create an
+[app password](https://myaccount.google.com/apppasswords), then set:
+
+```bash
+MAIL_SERVICE=gmail
+MAIL_USERNAME=you@gmail.com
+MAIL_PASSWORD=<16-character app password>
+MAIL_FROM="drawDB <you@gmail.com>"
+```
+
+With `compose.local.yaml`, put these in `.env.local` next to it. Gmail
+sends as the account itself and allows about 500 messages a day.
+
+### Backups
+
+The `backup` service in the compose files dumps the database daily into
+`./backups` (`BACKUP_INTERVAL_HOURS`, `BACKUP_KEEP_DAYS`, default 24 and 14).
+To restore a dump:
+
+```bash
+docker compose -f compose.local.yaml stop server
+docker compose -f compose.local.yaml exec -T db pg_restore -U drawdb -d drawdb --clean --if-exists < backups/drawdb-<date>.dump
+docker compose -f compose.local.yaml start server
+```
+
+On Railway, turn on backups for the Postgres service's volume.
+
 ### OAuth
 
 A provider is enabled once both its client ID and secret are set. Register

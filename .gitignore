@@ -25,3 +25,5 @@ yarn-error.log*
 
 test.html
 .env
+# database dumps from compose
+/backups

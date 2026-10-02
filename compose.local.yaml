@@ -1,0 +1,74 @@
+# Full stack on one machine: Postgres, API, frontend and backups.
+# Expects the frontend checked out next to this repo (../drawdb).
+# Mail: put MAIL_USERNAME / MAIL_PASSWORD (Gmail app password) in .env.local
+#   docker compose -f compose.local.yaml up -d --build
+# App: http://localhost:8080
+name: drawdb-local
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: drawdb
+      POSTGRES_PASSWORD: drawdb-local
+      POSTGRES_DB: drawdb
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drawdb"]
+      interval: 5s
+      retries: 10
+
+  server:
+    build: .
+    restart: unless-stopped
+    # Gmail account for emails; without it, mail is off
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      DATABASE_URL: postgres://drawdb:drawdb-local@db:5432/drawdb
+      PORT: 5000
+      CLIENT_URLS: http://localhost:8080
+      PUBLIC_API_URL: http://localhost:8080/api
+      # Plain http on localhost
+      COOKIE_SECURE: "false"
+      # One proxy (the frontend's nginx) in front
+      TRUST_PROXY: 1
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ../drawdb
+    restart: unless-stopped
+    environment:
+      VITE_BACKEND_URL: /api
+      API_PROXY_TARGET: http://server:5000
+    ports:
+      - 8080:80
+    depends_on:
+      - server
+
+  # Daily dumps into ./backups, kept two weeks
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: drawdb
+      PGPASSWORD: drawdb-local
+      PGDATABASE: drawdb
+      BACKUP_INTERVAL_HOURS: 24
+      BACKUP_KEEP_DAYS: 14
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    entrypoint: ["sh", "/backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:
