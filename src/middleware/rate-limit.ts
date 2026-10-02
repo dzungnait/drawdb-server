@@ -6,7 +6,7 @@ const options = (windowMinutes: number, limit: number) => ({
   limit,
   standardHeaders: 'draft-8' as const,
   legacyHeaders: false,
-  skip: () => config.test,
+  skip: () => config.test || !config.limits.rateLimit,
   message: { error: { code: 'rate_limited', message: 'Too many requests, try again later' } },
 });
 

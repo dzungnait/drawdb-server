@@ -72,6 +72,8 @@ export const config = {
     // Request body limit, which bounds the size of one diagram
     bodySize: env.MAX_BODY_SIZE || '5mb',
     trashDays: Number(env.TRASH_DAYS || 30),
+    // Off only for automated browser tests, which sign up many accounts
+    rateLimit: bool(env.RATE_LIMIT, true),
   },
   versions: {
     // While editing, the state before an edit is kept at most this often
