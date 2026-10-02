@@ -201,12 +201,21 @@ describe('editing together', () => {
     a.socket.emit('awareness', {
       cursor: { x: 10, y: 20 },
       selection: { element: 1, id: 't1' },
+      linking: { startX: 1, startY: 2, endX: 3, endY: 4, extra: 'x' },
       extra: 'x',
     });
     expect(await a2.next('awareness')).toEqual({
       sid: a.socket.id,
       cursor: { x: 10, y: 20 },
       selection: { element: 1, id: 't1' },
+      linking: { startX: 1, startY: 2, endX: 3, endY: 4 },
+    });
+    a.socket.emit('awareness', { cursor: null, linking: { startX: 1, startY: 'x' } });
+    expect(await a2.next('awareness', 2)).toEqual({
+      sid: a.socket.id,
+      cursor: null,
+      selection: null,
+      linking: null,
     });
   });
 

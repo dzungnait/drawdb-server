@@ -213,11 +213,14 @@ export function attachCollab(server: HttpServer) {
     socket.on('awareness', (payload: unknown) => {
       const member = socket.data.member;
       if (!member || !spend(socket)) return;
-      const { cursor, selection } = (payload ?? {}) as Record<string, unknown>;
+      const { cursor, selection, linking } = (payload ?? {}) as Record<string, unknown>;
       const point = (v: unknown) => {
         const p = v as { x?: unknown; y?: unknown } | null;
         return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? { x: p.x, y: p.y } : null;
       };
+      // The relationship line being dragged
+      const line = linking as Record<string, unknown> | null;
+      const ends = ['startX', 'startY', 'endX', 'endY'] as const;
       const sel = selection as { element?: unknown; id?: unknown } | null;
       socket.to(member.diagramId).volatile.emit('awareness', {
         sid: socket.id,
@@ -225,6 +228,10 @@ export function attachCollab(server: HttpServer) {
         selection:
           sel && typeof sel.element === 'number' && ['string', 'number'].includes(typeof sel.id)
             ? { element: sel.element, id: sel.id }
+            : null,
+        linking:
+          line && ends.every((k) => Number.isFinite(line[k]))
+            ? Object.fromEntries(ends.map((k) => [k, line[k]]))
             : null,
       });
     });
