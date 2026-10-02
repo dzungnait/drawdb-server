@@ -1,10 +1,11 @@
 name: Test
 
+# main follows the upstream repo; our work lives on the feat/* branches
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "feat/**"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "feat/**"]
   workflow_dispatch:
 
 jobs:

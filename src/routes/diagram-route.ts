@@ -4,6 +4,7 @@ import * as v from '../controllers/version-controller';
 import * as m from '../controllers/member-controller';
 import * as l from '../controllers/link-controller';
 import * as t from '../controllers/team-controller';
+import * as cm from '../controllers/comment-controller';
 import { withShareLink } from '../utils/request-context';
 import { shareLimiter } from '../middleware/rate-limit';
 import { asyncHandler as h, requireUser } from '../auth/middleware';
@@ -48,5 +49,12 @@ diagramRouter.delete('/:id/links/:role', h(l.remove));
 diagramRouter.post('/:id/teams', h(t.share));
 diagramRouter.patch('/:id/teams/:teamId', h(t.changeShare));
 diagramRouter.delete('/:id/teams/:teamId', h(t.unshare));
+
+diagramRouter.get('/:id/comments', h(cm.list));
+diagramRouter.post('/:id/comments', h(cm.create));
+diagramRouter.post('/:id/comments/:commentId/replies', h(cm.reply));
+diagramRouter.post('/:id/comments/:commentId/resolve', h(cm.resolve));
+diagramRouter.patch('/:id/comments/:commentId', h(cm.edit));
+diagramRouter.delete('/:id/comments/:commentId', h(cm.remove));
 
 export { diagramRouter };

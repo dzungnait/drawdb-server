@@ -119,3 +119,11 @@ Run a single instance: open diagrams live in that process's memory. (Several ins
 Anyone can create a team (they become its admin) and add people by email; addresses without an account get an invitation that turns into membership when they sign up, like diagram invitations. Admins manage members and can rename or delete the team; a team always keeps at least one admin.
 
 A diagram's owner can share it with any team they're in, as editor or viewer. Everyone in the team gets that access (the best of it and any personal share counts), and it ends as soon as they leave the team or the share is removed, also for people with the diagram open. Diagrams still belong to a person: deleting a team only removes the access it gave.
+
+### Owners
+
+The owner can hand a diagram over to someone it's already shared with (`POST /diagrams/:id/owner`). The new owner decides who has access from then on; the previous owner stays on as an editor, and links and team shares are kept.
+
+### Comments
+
+Everyone a diagram is shared with, viewers included, can comment on its tables and fields (`/diagrams/:id/comments`). Comments form threads that can be answered and resolved (an answer opens a resolved thread again). Authors edit their own comments; the author or the diagram's owner can delete one, and deleting the first comment removes the thread. People who only have a link don't see comments, since they show who wrote them. Everyone with the diagram open is told when comments change and fetches them again.

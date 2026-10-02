@@ -17,6 +17,10 @@ export interface RoomEvents {
 let events: RoomEvents = { emit: () => {}, revalidate: async () => {} };
 export const setRoomEvents = (e: RoomEvents) => (events = e);
 
+/** Sends an event to everyone with the diagram open. */
+export const emitToRoom = (id: string, event: string, payload: unknown) =>
+  events.emit(id, event, payload);
+
 /**
  * A diagram open in at least one editor. Its state is the source of truth
  * while open: edits are applied here in order and saved shortly after.
