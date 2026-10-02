@@ -241,3 +241,60 @@ describe('invitations', () => {
     expect((await dan.get(`/diagrams/${id}`)).status).toBe(404);
   });
 });
+
+describe('handing over ownership', () => {
+  it('makes a member the owner and keeps the previous owner as an editor', async () => {
+    const { ada, bob, cy, id } = await team();
+    const res = await ada.b.post(`/diagrams/${id}/owner`, { userId: bob.user.id });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ role: 'editor', owner: { id: bob.user.id } });
+    expect(res.body.members).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: ada.user.id, role: 'editor' }),
+        expect.objectContaining({ id: cy.user.id, role: 'viewer' }),
+      ]),
+    );
+    expect(res.body.members.some((m: { id: string }) => m.id === bob.user.id)).toBe(false);
+    expect(testOutbox.at(-1)).toMatchObject({ to: 'bob@example.com' });
+
+    // Bob decides now; Ada can still edit but not share
+    expect((await bob.b.get(`/diagrams/${id}`)).body.diagram.role).toBe('owner');
+    expect((await ada.b.get('/diagrams?scope=shared')).body.diagrams).toMatchObject([
+      { diagramId: id, role: 'editor' },
+    ]);
+    expect((await put(ada.b, id, 1)).status).toBe(200);
+    expect(
+      (await ada.b.post(`/diagrams/${id}/members`, { email: 'x@example.com', role: 'viewer' }))
+        .status,
+    ).toBe(403);
+    expect((await bob.b.delete(`/diagrams/${id}/members/${ada.user.id}`)).status).toBe(204);
+    expect((await ada.b.get(`/diagrams/${id}`)).status).toBe(404);
+  });
+
+  it('only goes from the owner to someone with access', async () => {
+    const { ada, bob, cy, id } = await team();
+    const { user: dan } = await signUp('dan@example.com');
+    expect((await bob.b.post(`/diagrams/${id}/owner`, { userId: bob.user.id })).status).toBe(403);
+    expect((await ada.b.post(`/diagrams/${id}/owner`, { userId: dan.id })).status).toBe(404);
+    expect((await ada.b.post(`/diagrams/${id}/owner`, { userId: ada.user.id })).status).toBe(404);
+    expect((await ada.b.post(`/diagrams/${id}/owner`, { userId: 'nope' })).status).toBe(400);
+    // Viewers can be made owners too
+    expect((await ada.b.post(`/diagrams/${id}/owner`, { userId: cy.user.id })).status).toBe(200);
+  });
+
+  it("respects the new owner's diagram limit", async () => {
+    const { ada, bob, id } = await team();
+    const limit = config.limits.diagramsPerUser;
+    config.limits.diagramsPerUser = 1;
+    try {
+      await create(bob.b);
+      const res = await ada.b.post(`/diagrams/${id}/owner`, { userId: bob.user.id });
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('owner_limit_reached');
+      // Nothing changed
+      expect((await bob.b.get(`/diagrams/${id}`)).body.diagram.role).toBe('editor');
+    } finally {
+      config.limits.diagramsPerUser = limit;
+    }
+  });
+});

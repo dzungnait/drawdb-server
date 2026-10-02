@@ -1,5 +1,5 @@
 import { config } from '../config';
-import { query, queryOne } from '../db';
+import { query, queryOne, transaction } from '../db';
 import { escapeHtml, layout } from '../auth/tokens';
 import { badRequest, forbidden, HttpError, notFound } from '../utils/http-error';
 import { sendTransactionalEmail } from '../utils/send-email';
@@ -163,6 +163,66 @@ export async function removeMember(diagramId: string, user: UserRow, memberId: s
   );
   if (!removed.length) throw notFound('member_not_found');
   await revalidateRoom(diagramId);
+}
+
+/**
+ * Hands the diagram to someone who already has access. The previous owner
+ * stays on as an editor; links and team shares are kept.
+ */
+export async function transferOwnership(diagramId: string, user: UserRow, memberId: string) {
+  const { row } = await loadAsOwner(diagramId, user);
+  const newOwner = await transaction(async (db) => {
+    const {
+      rows: [member],
+    } = await db.query<PersonRow>(
+      `DELETE FROM diagram_members m USING users u
+        WHERE m.diagram_id = $1 AND m.user_id = $2 AND u.id = m.user_id
+        RETURNING u.id, u.name, u.email, u.avatar_url`,
+      [diagramId, memberId],
+    );
+    if (!member) throw notFound('member_not_found');
+    const {
+      rows: [owned],
+    } = await db.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM diagrams WHERE owner_id = $1',
+      [memberId],
+    );
+    if (owned.n >= config.limits.diagramsPerUser) {
+      throw new HttpError(
+        403,
+        'owner_limit_reached',
+        `They already have ${config.limits.diagramsPerUser} diagrams`,
+      );
+    }
+    // Still theirs to give (not handed over by a request at the same time)
+    const moved = await db.query(
+      'UPDATE diagrams SET owner_id = $2 WHERE id = $1 AND owner_id = $3',
+      [diagramId, memberId, user.id],
+    );
+    if (!moved.rowCount) throw forbidden('owner_only');
+    await db.query(
+      `INSERT INTO diagram_members (diagram_id, user_id, role, invited_by)
+       VALUES ($1, $2, 'editor', $3)
+       ON CONFLICT (diagram_id, user_id) DO UPDATE SET role = 'editor'`,
+      [diagramId, user.id, memberId],
+    );
+    return member;
+  });
+  await revalidateRoom(diagramId);
+  const name = row.name || 'Untitled diagram';
+  await sendTransactionalEmail(
+    newOwner.email,
+    `${user.name || user.email} made you the owner of "${name}"`,
+    layout(
+      'You own a diagram now',
+      `<p>${escapeHtml(user.name || user.email)} made you the owner of <b>${escapeHtml(name)}</b>
+       on drawDB. You decide who has access to it now; ${escapeHtml(user.name || user.email)}
+       stays on as an editor.</p>`,
+      `${config.server.appUrl}/editor/diagrams/${diagramId}`,
+      'Open the diagram',
+    ),
+  );
+  return listMembers(diagramId, user);
 }
 
 export async function cancelInvite(diagramId: string, user: UserRow, inviteId: string) {

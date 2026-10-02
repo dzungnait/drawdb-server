@@ -38,6 +38,7 @@ diagramRouter.post('/:id/members', shareLimiter, h(m.share));
 diagramRouter.patch('/:id/members/:userId', h(m.changeRole));
 diagramRouter.delete('/:id/members/:userId', h(m.remove));
 diagramRouter.delete('/:id/invites/:inviteId', h(m.cancelInvite));
+diagramRouter.post('/:id/owner', h(m.transferOwnership));
 
 diagramRouter.get('/:id/links', h(l.list));
 diagramRouter.put('/:id/links/:role', h(l.set));

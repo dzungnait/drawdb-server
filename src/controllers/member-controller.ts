@@ -26,6 +26,11 @@ export async function remove(req: Request, res: Response) {
   res.status(204).end();
 }
 
+export async function transferOwnership(req: Request, res: Response) {
+  const body = z.object({ userId: z.string().uuid() }).parse(req.body);
+  res.json(await members.transferOwnership(diagramId.parse(req.params.id), req.user!, body.userId));
+}
+
 export async function cancelInvite(req: Request, res: Response) {
   const inviteId = z.string().regex(/^\d{1,18}$/).parse(req.params.inviteId);
   res.json(await members.cancelInvite(diagramId.parse(req.params.id), req.user!, inviteId));
