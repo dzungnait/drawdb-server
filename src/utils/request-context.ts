@@ -11,3 +11,7 @@ export const withShareLink: RequestHandler = (req, _res, next) => {
 
 /** The share link the current request was made with, if any. */
 export const currentShareLink = () => shareLink.getStore() ?? null;
+
+/** Runs `fn` as if the request carried this share link (for sockets). */
+export const runWithShareLink = <T>(token: string | null, fn: () => T) =>
+  shareLink.run(token && token.length <= 100 ? token : null, fn);

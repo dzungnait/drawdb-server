@@ -24,7 +24,13 @@ export async function startSession(req: Request, res: Response, userId: string) 
   await query(
     `INSERT INTO sessions (token_hash, user_id, user_agent, ip, expires_at)
      VALUES ($1, $2, $3, $4, $5)`,
-    [hashToken(token), userId, req.get('user-agent')?.slice(0, 500) ?? null, req.ip ?? null, expiresAt],
+    [
+      hashToken(token),
+      userId,
+      req.get('user-agent')?.slice(0, 500) ?? null,
+      req.ip ?? null,
+      expiresAt,
+    ],
   );
   res.cookie(config.auth.cookieName, token, { ...cookieOptions(), expires: expiresAt });
 }
@@ -83,4 +89,13 @@ export async function endOtherSessions(userId: string, keepSessionId?: string) {
 export async function purgeExpiredSessions() {
   await query('DELETE FROM sessions WHERE expires_at <= now()');
   await query(`DELETE FROM auth_tokens WHERE expires_at <= now() - interval '7 days'`);
+}
+
+/** The user behind a session token, for connections that aren't requests (sockets). */
+export async function userForSessionToken(token: string) {
+  return queryOne<UserRow>(
+    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1 AND s.expires_at > now()`,
+    [hashToken(token)],
+  );
 }

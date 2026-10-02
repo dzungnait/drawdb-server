@@ -1,6 +1,7 @@
 import { query, queryOne, transaction } from '../db';
 import { forbidden, notFound } from '../utils/http-error';
 import { canWrite, getDiagram, load } from './diagram-service';
+import { flushRoom, reloadRoom } from '../collab/rooms';
 import { keepCurrent, saveCurrent, SnapshotKind } from './snapshots';
 import { UserRow } from './user-service';
 
@@ -88,6 +89,8 @@ export async function getVersion(diagramId: string, versionId: string, user: Use
 
 export async function createVersion(diagramId: string, user: UserRow, label: string | null) {
   await loadForEditing(diagramId, user);
+  // Include live edits that aren't saved yet
+  await flushRoom(diagramId);
   const id = await transaction(async (db) => {
     await db.query('SELECT 1 FROM diagrams WHERE id = $1 FOR UPDATE', [diagramId]);
     return saveCurrent(db, diagramId, user.id, label);
@@ -95,7 +98,12 @@ export async function createVersion(diagramId: string, user: UserRow, label: str
   return meta(await loadVersion(diagramId, id));
 }
 
-export async function renameVersion(diagramId: string, versionId: string, user: UserRow, label: string | null) {
+export async function renameVersion(
+  diagramId: string,
+  versionId: string,
+  user: UserRow,
+  label: string | null,
+) {
   await loadForEditing(diagramId, user);
   await loadVersion(diagramId, versionId);
   await query('UPDATE diagram_versions SET label = $2 WHERE id = $1', [versionId, label]);
@@ -116,6 +124,7 @@ export async function deleteVersion(diagramId: string, versionId: string, user: 
 export async function restoreVersion(diagramId: string, versionId: string, user: UserRow) {
   await loadForEditing(diagramId, user);
   await loadVersion(diagramId, versionId);
+  await flushRoom(diagramId);
   await transaction(async (db) => {
     await db.query('SELECT 1 FROM diagrams WHERE id = $1 FOR UPDATE', [diagramId]);
     await keepCurrent(db, diagramId, 'pre_restore');
@@ -128,5 +137,7 @@ export async function restoreVersion(diagramId: string, versionId: string, user:
       [diagramId, versionId, user.id],
     );
   });
+  // Everyone editing it live switches to the restored state
+  await reloadRoom(diagramId);
   return getDiagram(diagramId, user);
 }

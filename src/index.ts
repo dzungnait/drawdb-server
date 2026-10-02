@@ -1,4 +1,7 @@
+import { createServer } from 'http';
 import app from './app';
+import { attachCollab } from './collab/socket';
+import { flushAllRooms } from './collab/rooms';
 import { config } from './config';
 import { closePool } from './db';
 import { migrate } from './db/migrate';
@@ -25,11 +28,17 @@ async function start() {
     console.warn('DATABASE_URL is not set: accounts and cloud features are disabled');
   }
 
-  const server = app.listen(config.server.port, () => {
+  const server = createServer(app);
+  // Live collaboration needs the database (rooms load and save diagrams)
+  const io = config.database.url ? attachCollab(server) : null;
+  server.listen(config.server.port, () => {
     console.log(`Server is running on http://localhost:${config.server.port}`);
   });
 
-  const shutdown = () => {
+  const shutdown = async () => {
+    io?.close();
+    // Edits still waiting in open rooms
+    await flushAllRooms();
     server.close(() => {
       closePool().finally(() => process.exit(0));
     });

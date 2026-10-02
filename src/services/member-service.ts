@@ -3,6 +3,7 @@ import { query, queryOne } from '../db';
 import { escapeHtml, layout } from '../auth/tokens';
 import { badRequest, forbidden, HttpError, notFound } from '../utils/http-error';
 import { sendTransactionalEmail } from '../utils/send-email';
+import { revalidateRoom } from '../collab/rooms';
 import { load, MemberRole } from './diagram-service';
 import { findUserByEmail, normalizeEmail, UserRow } from './user-service';
 
@@ -127,6 +128,7 @@ export async function shareDiagram(
       );
   // Only the first time; a role change isn't worth an email
   if (added!.is_new) await sendShareEmail(email, user, { id: row.id, name: row.name }, role);
+  else await revalidateRoom(diagramId);
 
   return { status: target ? 'added' : 'invited', ...(await listMembers(diagramId, user)) };
 }
@@ -143,6 +145,8 @@ export async function changeRole(
     [diagramId, memberId, role],
   );
   if (!updated.length) throw notFound('member_not_found');
+  // Applies right away to them if they have it open
+  await revalidateRoom(diagramId);
   return listMembers(diagramId, user);
 }
 
@@ -155,6 +159,7 @@ export async function removeMember(diagramId: string, user: UserRow, memberId: s
     [diagramId, memberId],
   );
   if (!removed.length) throw notFound('member_not_found');
+  await revalidateRoom(diagramId);
 }
 
 export async function cancelInvite(diagramId: string, user: UserRow, inviteId: string) {

@@ -54,11 +54,13 @@ export const checkOrigin: RequestHandler = (req, _res, next) => {
   if (SAFE_METHODS.has(req.method)) return next();
   const origin = req.get('origin');
   if (!origin) return next();
-  const allowed =
-    config.dev ||
-    config.server.allowedOrigins.includes(origin) ||
-    origin === config.server.appUrl ||
-    origin === new URL(config.server.publicApiUrl).origin;
-  if (!allowed) return next(forbidden('bad_origin'));
+  if (!isAllowedOrigin(origin)) return next(forbidden('bad_origin'));
   next();
 };
+
+/** The app's own origins (and anything in development). */
+export const isAllowedOrigin = (origin: string) =>
+  config.dev ||
+  config.server.allowedOrigins.includes(origin) ||
+  origin === config.server.appUrl ||
+  origin === new URL(config.server.publicApiUrl).origin;

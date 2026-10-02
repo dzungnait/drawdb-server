@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { query, queryOne } from '../db';
 import { badRequest, forbidden, notFound } from '../utils/http-error';
+import { revalidateRoom } from '../collab/rooms';
 import { load, MemberRole } from './diagram-service';
 import { UserRow } from './user-service';
 
@@ -54,6 +55,8 @@ export async function setLink(
      ON CONFLICT (diagram_id, role) DO UPDATE SET expires_at = EXCLUDED.expires_at`,
     [diagramId, role, newToken(), user.id, expiresAt],
   );
+  // People in it through this link may have lost access
+  await revalidateRoom(diagramId);
   return listLinks(diagramId, user);
 }
 
@@ -66,12 +69,16 @@ export async function regenerateLink(diagramId: string, user: UserRow, role: Mem
     [diagramId, role, newToken(), user.id],
   );
   if (!updated) throw notFound('link_not_found');
+  // People in it through this link may have lost access
+  await revalidateRoom(diagramId);
   return listLinks(diagramId, user);
 }
 
 export async function deleteLink(diagramId: string, user: UserRow, role: MemberRole) {
   await loadAsOwner(diagramId, user);
   await query('DELETE FROM share_links WHERE diagram_id = $1 AND role = $2', [diagramId, role]);
+  // People in it through this link may have lost access
+  await revalidateRoom(diagramId);
   return listLinks(diagramId, user);
 }
 

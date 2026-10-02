@@ -2,6 +2,7 @@ import { config, mailEnabled } from '../config';
 import { query, queryOne, transaction } from '../db';
 import { conflict, forbidden, HttpError, notFound } from '../utils/http-error';
 import { currentShareLink } from '../utils/request-context';
+import { flushRoom, reloadRoom, revalidateRoom } from '../collab/rooms';
 import { keepCurrent, keepCurrentIfDue } from './snapshots';
 import { UserRow } from './user-service';
 
@@ -241,7 +242,9 @@ export async function updateDiagram(
   const { role } = await load(id, user);
   if (!canWrite(role)) throw forbidden('read_only');
 
-  return transaction(async (db) => {
+  // Someone may be editing it live: their edits count as the latest version
+  await flushRoom(id);
+  const saved = await transaction(async (db) => {
     const {
       rows: [current],
     } = await db.query<{ version: number; updated_at: Date }>(
@@ -272,12 +275,16 @@ export async function updateDiagram(
     );
     return { diagramId: id, version: updated.version, lastModified: updated.updated_at };
   });
+  await reloadRoom(id);
+  return saved;
 }
 
 export async function trashDiagram(id: string, user: UserRow) {
   const { role } = await load(id, user);
   if (role !== 'owner') throw forbidden('owner_only');
   await query('UPDATE diagrams SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL', [id]);
+  // People who have it open lose access too
+  await revalidateRoom(id);
 }
 
 export async function restoreDiagram(id: string, user: UserRow) {
