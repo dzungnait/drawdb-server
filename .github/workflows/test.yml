@@ -1,0 +1,39 @@
+name: Test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: drawdb
+          POSTGRES_PASSWORD: drawdb
+          POSTGRES_DB: drawdb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U drawdb"
+          --health-interval 2s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://drawdb:drawdb@localhost:5432/drawdb_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - name: Type check
+        run: npx tsc --noEmit
+      - run: npm test

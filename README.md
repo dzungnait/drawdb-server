@@ -33,6 +33,10 @@ docker exec drawdb-pg psql -U drawdb -c "create database drawdb_test"
 npm test
 ```
 
+Browser tests of the whole app live in the frontend repo
+([`drawdb/e2e`](https://github.com/dzungnait/drawdb/tree/main/e2e)); they run
+against `compose.e2e.yaml`, a throwaway stack on port 8088.
+
 ### Deployment
 
 Session cookies work best when the app and the API share a site. Two setups:

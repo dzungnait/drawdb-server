@@ -1,0 +1,52 @@
+# Throwaway stack for the browser tests in ../drawdb/e2e, on port 8088.
+#   docker compose -f compose.e2e.yaml up -d --build --wait
+#   (cd ../drawdb && npm run test:e2e)
+#   docker compose -f compose.e2e.yaml down
+name: drawdb-e2e
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: drawdb
+      POSTGRES_PASSWORD: drawdb-e2e
+      POSTGRES_DB: drawdb
+    # Nothing to keep
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drawdb"]
+      interval: 2s
+      retries: 30
+
+  server:
+    build: .
+    environment:
+      DATABASE_URL: postgres://drawdb:drawdb-e2e@db:5432/drawdb
+      PORT: 5000
+      CLIENT_URLS: http://localhost:8088
+      PUBLIC_API_URL: http://localhost:8088/api
+      COOKIE_SECURE: "false"
+      TRUST_PROXY: 1
+      # The tests sign up many accounts from one address
+      RATE_LIMIT: "false"
+      # A version for every save, so history has something to show
+      VERSION_INTERVAL_MINUTES: 0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health || exit 1"]
+      interval: 2s
+      retries: 30
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ../drawdb
+    environment:
+      VITE_BACKEND_URL: /api
+      API_PROXY_TARGET: http://server:5000
+    ports:
+      - 8088:80
+    depends_on:
+      server:
+        condition: service_healthy
