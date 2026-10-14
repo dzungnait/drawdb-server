@@ -161,20 +161,57 @@ describe('managing links', () => {
     expect((await open(browser(), id, second)).status).toBe(404);
   });
 
-  it('is up to the owner', async () => {
+  it('is up to the owner; editors can only turn the view link on', async () => {
     const { b: ada } = await signUp('ada@example.com');
     const { b: bob } = await signUp('bob@example.com');
+    const { b: cy } = await signUp('cy@example.com');
     const id = await create(ada);
     await ada.post(`/diagrams/${id}/members`, { email: 'bob@example.com', role: 'editor' });
+    await ada.post(`/diagrams/${id}/members`, { email: 'cy@example.com', role: 'viewer' });
+    const put = (b: Browser, role: string, body: object = {}, token?: string) => {
+      const r = b.agent.put(`/diagrams/${id}/links/${role}`).set('Origin', ORIGIN);
+      return (token ? r.set('X-Share-Link', token) : r).send(body);
+    };
 
-    expect((await bob.get(`/diagrams/${id}/links`)).status).toBe(403);
-    const res = await bob.agent.put(`/diagrams/${id}/links/viewer`).set('Origin', ORIGIN).send({});
-    expect(res.status).toBe(403);
-    expect((await ada.post(`/diagrams/${id}/links/viewer/regenerate`)).status).toBe(404);
-    const past = await ada.agent
-      .put(`/diagrams/${id}/links/viewer`)
-      .set('Origin', ORIGIN)
-      .send({ expiresAt: '2000-01-01T00:00:00Z' });
+    // A viewer can't make links
+    expect((await cy.get(`/diagrams/${id}/links`)).status).toBe(403);
+    expect((await put(cy, 'viewer')).status).toBe(403);
+
+    // An editor turns the view link on, and anyone can view with it
+    expect((await bob.get(`/diagrams/${id}/links`)).body.links).toEqual([]);
+    const on = await put(bob, 'viewer');
+    expect(on.status).toBe(200);
+    expect(on.body.links).toMatchObject([{ role: 'viewer', expiresAt: null }]);
+    expect((await open(browser(), id, on.body.links[0].token)).status).toBe(200);
+
+    // ...but nothing else: no edit link, expiry, new token or turning it off
+    expect((await put(bob, 'editor')).status).toBe(403);
+    expect((await put(bob, 'viewer', { expiresAt: '2100-01-01T00:00:00Z' })).status).toBe(403);
+    expect((await bob.post(`/diagrams/${id}/links/viewer/regenerate`)).status).toBe(403);
+    expect(
+      (await bob.agent.delete(`/diagrams/${id}/links/viewer`).set('Origin', ORIGIN)).status,
+    ).toBe(403);
+
+    // The owner's settings stay, and editors don't see the edit link
+    const later = '2100-01-01T00:00:00.000Z';
+    const viewToken = await link(ada, id, 'viewer', later);
+    const editToken = await link(ada, id, 'editor');
+    const again = await put(bob, 'viewer');
+    expect(again.body.links).toEqual([
+      expect.objectContaining({ role: 'viewer', expiresAt: later }),
+    ]);
+    expect(again.body.links[0].token).toBe(viewToken);
+    expect((await ada.get(`/diagrams/${id}/links`)).body.links).toHaveLength(2);
+
+    // Editing only through the edit link doesn't allow making links
+    const { b: dan } = await signUp('dan@example.com');
+    expect((await open(dan, id, editToken)).body.diagram.role).toBe('editor');
+    expect((await put(dan, 'viewer', {}, editToken)).status).toBe(403);
+
+    expect((await ada.post(`/diagrams/${id}/links/editor/regenerate`)).status).toBe(200);
+    await ada.agent.delete(`/diagrams/${id}/links/editor`).set('Origin', ORIGIN);
+    expect((await ada.post(`/diagrams/${id}/links/editor/regenerate`)).status).toBe(404);
+    const past = await put(ada, 'viewer', { expiresAt: '2000-01-01T00:00:00Z' });
     expect(past.status).toBe(400);
   });
 

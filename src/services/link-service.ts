@@ -27,19 +27,33 @@ async function loadAsOwner(diagramId: string, user: UserRow) {
   if (access.role !== 'owner') throw forbidden('owner_only');
 }
 
-/** The diagram's view and edit links (only the owner manages them). */
+/**
+ * The owner manages both links. An editor it's shared with may only turn
+ * the view link on and copy it; they don't see the edit link. Someone who is
+ * an editor only through the edit link can't make links.
+ */
+async function loadForLinks(diagramId: string, user: UserRow) {
+  const { role, via } = await load(diagramId, user);
+  if (role === 'owner') return 'owner';
+  if (role === 'editor' && via === 'member') return 'editor';
+  throw forbidden('owner_only');
+}
+
+/** The diagram's links the caller may see. */
 export async function listLinks(diagramId: string, user: UserRow) {
-  await loadAsOwner(diagramId, user);
+  const as = await loadForLinks(diagramId, user);
   const rows = await query<LinkRow>(
-    'SELECT role, token, created_at, expires_at FROM share_links WHERE diagram_id = $1 ORDER BY role DESC',
-    [diagramId],
+    `SELECT role, token, created_at, expires_at FROM share_links
+      WHERE diagram_id = $1 AND ($2 OR role = 'viewer') ORDER BY role DESC`,
+    [diagramId, as === 'owner'],
   );
   return rows.map(toLink);
 }
 
 /**
  * Turns a link on, or changes when it expires. The token stays the same,
- * so links already handed out keep working.
+ * so links already handed out keep working. Editors can only turn the view
+ * link on, without an expiry; one that's already on stays as the owner set it.
  */
 export async function setLink(
   diagramId: string,
@@ -47,7 +61,16 @@ export async function setLink(
   role: MemberRole,
   expiresAt: Date | null,
 ) {
-  await loadAsOwner(diagramId, user);
+  const as = await loadForLinks(diagramId, user);
+  if (as === 'editor') {
+    if (role !== 'viewer' || expiresAt) throw forbidden('owner_only');
+    await query(
+      `INSERT INTO share_links (diagram_id, role, token, created_by) VALUES ($1, 'viewer', $2, $3)
+       ON CONFLICT (diagram_id, role) DO NOTHING`,
+      [diagramId, newToken(), user.id],
+    );
+    return listLinks(diagramId, user);
+  }
   if (expiresAt && expiresAt <= new Date())
     throw badRequest('expiry_in_past', 'Pick a time in the future');
   await query(

@@ -158,6 +158,8 @@ describe('email verification', () => {
     expect(testOutbox[0].to).toBe('ada@example.com');
     expect(testOutbox[0].html).toContain('http://app.test/verify-email?token=');
     const token = tokenFrom(testOutbox[0].html);
+    // A plain-text version too, with the same link
+    expect(testOutbox[0].text).toContain(`http://app.test/verify-email?token=${token}`);
 
     expect((await browser().post('/auth/email/verify', { token })).status).toBe(204);
     expect((await b.get('/auth/me')).body.user.emailVerified).toBe(true);

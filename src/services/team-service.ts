@@ -1,6 +1,6 @@
 import { config } from '../config';
 import { query, queryOne, transaction } from '../db';
-import { escapeHtml, layout } from '../auth/tokens';
+import { escapeHtml, renderEmail } from '../utils/email-template';
 import { revalidateRoom } from '../collab/rooms';
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../utils/http-error';
 import { sendTransactionalEmail } from '../utils/send-email';
@@ -142,17 +142,25 @@ export async function getTeam(id: string, user: UserRow) {
 // ---- members
 
 function sendTeamInvite(to: string, from: UserRow, teamName: string) {
-  return sendTransactionalEmail(
+  const sender = from.name || from.email;
+  sendTransactionalEmail(
     to,
-    `${from.name || from.email} added you to the team "${teamName}"`,
-    layout(
-      `You're in ${escapeHtml(teamName)}`,
-      `<p>${escapeHtml(from.name || from.email)} added you to the team <b>${escapeHtml(teamName)}</b>
-       on drawDB. Diagrams shared with the team show up in your list.</p>
-       <p>Sign in (or create an account) with ${escapeHtml(to)} to see them.</p>`,
-      `${config.server.appUrl}/`,
-      'Open drawDB',
-    ),
+    `${sender} added you to the team "${teamName}" on drawDB`,
+    renderEmail({
+      preview: `Diagrams shared with ${teamName} will show up in your drawDB list.`,
+      heading: `You've been added to ${teamName}`,
+      paragraphs: [
+        `<b>${escapeHtml(sender)}</b> (${escapeHtml(from.email)}) added you to the team <b>${escapeHtml(teamName)}</b> on drawDB.`,
+        'Every diagram shared with the team appears in your diagram list, so you can open it without being invited one by one.',
+      ],
+      details: [
+        ['Team', teamName],
+        ['Added by', `${sender} <${from.email}>`],
+      ],
+      action: { label: 'Open drawDB', url: `${config.server.appUrl}/` },
+      note: `Sign in, or create a free account, with ${to} to see the team's diagrams.`,
+      reason: `You're receiving this email because ${sender} added ${to} to a team on drawDB.`,
+    }),
   );
 }
 
@@ -183,7 +191,7 @@ export async function addMember(id: string, user: UserRow, rawEmail: string, rol
       [id, email, role, user.id],
     );
   }
-  await sendTeamInvite(email, user, row.name);
+  sendTeamInvite(email, user, row.name);
   return { status: target ? 'added' : 'invited', ...(await getTeam(id, user)) };
 }
 

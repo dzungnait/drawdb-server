@@ -1,6 +1,6 @@
 import { config } from '../config';
 import { query, queryOne, transaction } from '../db';
-import { escapeHtml, layout } from '../auth/tokens';
+import { escapeHtml, renderEmail } from '../utils/email-template';
 import { badRequest, forbidden, HttpError, notFound } from '../utils/http-error';
 import { sendTransactionalEmail } from '../utils/send-email';
 import { revalidateRoom } from '../collab/rooms';
@@ -70,19 +70,31 @@ function sendShareEmail(
   diagram: { id: string; name: string },
   role: MemberRole,
 ) {
-  const link = `${config.server.appUrl}/editor/diagrams/${diagram.id}`;
   const name = diagram.name || 'Untitled diagram';
-  return sendTransactionalEmail(
+  const sender = from.name || from.email;
+  sendTransactionalEmail(
     to,
-    `${from.name || from.email} shared "${name}" with you`,
-    layout(
-      'A diagram was shared with you',
-      `<p>${escapeHtml(from.name || from.email)} (${escapeHtml(from.email)}) shared <b>${escapeHtml(name)}</b>
-       with you as ${role === 'editor' ? 'an editor' : 'a viewer'}.</p>
-       <p>Sign in (or create an account) with ${escapeHtml(to)} to open it.</p>`,
-      link,
-      'Open diagram',
-    ),
+    `${sender} shared "${name}" with you`,
+    renderEmail({
+      preview: `${sender} invited you to ${role === 'editor' ? 'edit' : 'view'} a diagram on drawDB.`,
+      heading: `${sender} shared a diagram with you`,
+      paragraphs: [
+        `<b>${escapeHtml(sender)}</b> (${escapeHtml(from.email)}) invited you to ${
+          role === 'editor' ? 'work on' : 'view'
+        } a database diagram on drawDB.`,
+      ],
+      details: [
+        ['Diagram', name],
+        ['Your access', role === 'editor' ? 'Can edit' : 'Can view'],
+        ['Shared by', `${sender} <${from.email}>`],
+      ],
+      action: {
+        label: 'Open diagram',
+        url: `${config.server.appUrl}/editor/diagrams/${diagram.id}`,
+      },
+      note: `Sign in, or create a free account, with ${to} to open it.`,
+      reason: `You're receiving this email because ${sender} shared a diagram with ${to}.`,
+    }),
   );
 }
 
@@ -130,7 +142,7 @@ export async function shareDiagram(
         [diagramId, email, role, user.id],
       );
   // Only the first time; a role change isn't worth an email
-  if (added!.is_new) await sendShareEmail(email, user, { id: row.id, name: row.name }, role);
+  if (added!.is_new) sendShareEmail(email, user, { id: row.id, name: row.name }, role);
   else await revalidateRoom(diagramId);
 
   return { status: target ? 'added' : 'invited', ...(await listMembers(diagramId, user)) };
@@ -210,17 +222,28 @@ export async function transferOwnership(diagramId: string, user: UserRow, member
   });
   await revalidateRoom(diagramId);
   const name = row.name || 'Untitled diagram';
-  await sendTransactionalEmail(
+  const sender = user.name || user.email;
+  sendTransactionalEmail(
     newOwner.email,
-    `${user.name || user.email} made you the owner of "${name}"`,
-    layout(
-      'You own a diagram now',
-      `<p>${escapeHtml(user.name || user.email)} made you the owner of <b>${escapeHtml(name)}</b>
-       on drawDB. You decide who has access to it now; ${escapeHtml(user.name || user.email)}
-       stays on as an editor.</p>`,
-      `${config.server.appUrl}/editor/diagrams/${diagramId}`,
-      'Open the diagram',
-    ),
+    `${sender} made you the owner of "${name}"`,
+    renderEmail({
+      preview: `You now own "${name}" on drawDB.`,
+      heading: 'You are now the owner of a diagram',
+      paragraphs: [
+        `<b>${escapeHtml(sender)}</b> handed over the ownership of <b>${escapeHtml(name)}</b> to you.`,
+        `As the owner, you decide who can access it, manage its share links and can move it to the trash. ${escapeHtml(sender)} keeps access as an editor.`,
+      ],
+      details: [
+        ['Diagram', name],
+        ['Your access', 'Owner'],
+        ['Previous owner', `${sender} <${user.email}>`],
+      ],
+      action: {
+        label: 'Open diagram',
+        url: `${config.server.appUrl}/editor/diagrams/${diagramId}`,
+      },
+      reason: `You're receiving this email because ${sender} transferred a diagram to you.`,
+    }),
   );
   return listMembers(diagramId, user);
 }
